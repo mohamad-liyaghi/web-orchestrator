@@ -1,5 +1,9 @@
 import type {
   HandState,
+  LoopCommand,
+  LooperState,
+  LoopNoteView,
+  MidiStatus,
   InstrumentDef,
   InstrumentLoadState,
   Lane,
@@ -283,6 +287,129 @@ export class MockEngine implements MusicEngine {
 
   panic(): void {
     for (const v of this.voices) v.gate = false;
+  }
+
+  // Looper / MIDI: a pretend looper so the panel can be designed without audio.
+  private readonly loopState: LooperState = {
+    bars: 2,
+    phase: 'idle',
+    recordTrack: -1,
+    countIn: 0,
+    progress: 0,
+    takeProgress: 0,
+    seconds: 5,
+    tracks: [0, 1, 2, 3].map((index) => ({ index, notes: 0, muted: false, solo: false, audible: false, recording: false, instruments: [], view: [], pulse: 0 })),
+    canUndo: false,
+    version: 0,
+  };
+  private loopT0 = 0;
+  private recAt = 0;
+
+  looper(): LooperState {
+    const st = this.loopState;
+    const now = performance.now();
+    st.bars = this.s.loopBars;
+    st.seconds = (st.bars * 4 * 60) / this.s.tempo;
+    const loopMs = st.seconds * 1000;
+    const has = st.tracks.some((t) => t.notes > 0);
+    if (st.recordTrack >= 0) {
+      const el = now - this.recAt;
+      const countMs = (4 * 60_000) / this.s.tempo;
+      st.phase = el < countMs ? 'count-in' : 'recording';
+      st.countIn = el < countMs ? Math.max(1, 4 - Math.floor(el / (countMs / 4))) : 0;
+      st.takeProgress = el < countMs ? 0 : Math.min(1, (el - countMs) / loopMs);
+      if (st.takeProgress >= 1) this.loop({ type: 'record' });
+    } else {
+      st.phase = has ? 'playing' : 'idle';
+      st.countIn = 0;
+      st.takeProgress = 0;
+    }
+    st.progress = has || st.phase === 'recording' ? ((now - this.loopT0) % loopMs) / loopMs : 0;
+    const soloing = st.tracks.some((t) => t.solo && t.notes);
+    for (const t of st.tracks) {
+      t.audible = t.notes > 0 && !t.muted && (!soloing || t.solo);
+      t.recording = st.recordTrack === t.index;
+      let pulse = 0;
+      for (const n of t.view) {
+        const d = st.progress - n.start;
+        if (d >= 0 && d < 0.03) pulse = 1 - d / 0.03;
+      }
+      t.pulse = t.audible ? pulse : 0;
+    }
+    return st;
+  }
+
+  loop(cmd: LoopCommand): string {
+    const st = this.loopState;
+    st.version++;
+    switch (cmd.type) {
+      case 'record': {
+        if (st.recordTrack >= 0 && (cmd.track === undefined || cmd.track === st.recordTrack)) {
+          const t = st.tracks[st.recordTrack]!;
+          const view: LoopNoteView[] = [...t.view];
+          const n = 6 + Math.floor(Math.random() * 10);
+          for (let i = 0; i < n; i++) {
+            view.push({ start: Math.floor(Math.random() * 32) / 32, length: (1 + Math.floor(Math.random() * 3)) / 32, midi: 55 + Math.floor(Math.random() * 20), voice: 'lead', instrument: this.s.lead });
+          }
+          t.view = view;
+          t.notes = view.length;
+          if (!t.instruments.includes(this.s.lead)) t.instruments = [...t.instruments, this.s.lead];
+          st.recordTrack = -1;
+          st.canUndo = true;
+          return `Loop ${t.index + 1}: ${n} notes saved`;
+        }
+        const free = cmd.track ?? st.tracks.findIndex((t) => !t.notes);
+        if (free < 0) return 'All 4 loop tracks are full: clear one first';
+        if (!st.tracks.some((t) => t.notes)) this.loopT0 = performance.now() + (4 * 60_000) / this.s.tempo;
+        st.recordTrack = free;
+        this.recAt = performance.now();
+        return `Loop ${free + 1}: count-in…`;
+      }
+      case 'stop':
+        return st.recordTrack >= 0 ? this.loop({ type: 'record' }) : '';
+      case 'clear':
+      case 'clear-all':
+        for (const t of st.tracks) {
+          if (cmd.type === 'clear' && t.index !== cmd.track) continue;
+          t.view = [];
+          t.notes = 0;
+          t.instruments = [];
+          t.muted = t.solo = false;
+        }
+        return cmd.type === 'clear' ? `Loop ${cmd.track + 1} cleared` : 'All loops cleared';
+      case 'mute':
+      case 'solo': {
+        const t = st.tracks[cmd.track];
+        if (!t) return '';
+        if (cmd.type === 'mute') t.muted = !t.muted;
+        else t.solo = !t.solo;
+        return `Loop ${cmd.track + 1} ${cmd.type === 'mute' ? (t.muted ? 'muted' : 'unmuted') : t.solo ? 'solo' : 'solo off'}`;
+      }
+      case 'undo':
+        return 'Nothing to undo';
+      default:
+        return '';
+    }
+  }
+
+  private readonly midiSt: MidiStatus = { supported: true, enabled: false, pending: false, error: '', outputs: [], connected: false };
+
+  async enableMidi(): Promise<MidiStatus> {
+    this.midiSt.enabled = true;
+    this.midiSt.outputs = [
+      { id: 'mock-1', name: 'IAC Driver Bus 1' },
+      { id: 'mock-2', name: 'USB MIDI Interface' },
+    ];
+    this.midiSt.connected = this.s.midiOut !== '';
+    return { ...this.midiSt };
+  }
+
+  midiStatus(): MidiStatus {
+    return { ...this.midiSt };
+  }
+
+  onMidiStatus(): () => void {
+    return () => undefined;
   }
 
   dispose(): void {

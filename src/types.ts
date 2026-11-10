@@ -331,6 +331,16 @@ export interface Settings {
   gesturesEnabled: boolean;
   /** Action bound to each gesture. Left-hand gestures are ignored in 'chords' mode (finger counts pick chords). */
   gestures: Record<ActionGesture, GestureAction>;
+  /** Looper loop length in bars. */
+  loopBars: LoopBars;
+  /** Web MIDI output port id, '' = MIDI out off. */
+  midiOut: string;
+  /** MIDI channel 1..16 for the lead voice; the bass voice uses the next channel. */
+  midiChannel: number;
+  /** With MIDI out on: silence the live instruments' internal sound (loops and the beat still play). */
+  midiOnly: boolean;
+  /** Camera deviceId, '' = the default (front) camera. */
+  cameraId: string;
 }
 
 export interface VoiceState {
@@ -435,6 +445,101 @@ export interface MusicMetrics {
   sessionMs: number;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Looper (src/music/looper.ts)
+// ---------------------------------------------------------------------------------------------
+
+/** Looper loop length in bars (4/4). */
+export type LoopBars = 1 | 2 | 4 | 8;
+
+/** One recorded note for drawing a track lane. start and length are fractions of the loop (0..1). */
+export interface LoopNoteView {
+  start: number;
+  length: number;
+  midi: number;
+  voice: VoiceId;
+  /** InstrumentDef id the note was recorded with. */
+  instrument: string;
+}
+
+export interface LoopTrackState {
+  index: number;
+  /** Number of recorded notes. */
+  notes: number;
+  muted: boolean;
+  solo: boolean;
+  /** Heard right now: has notes, not muted, and no other track is soloed (or this one is). */
+  audible: boolean;
+  /** Recording (or counting in) into this track. */
+  recording: boolean;
+  /** InstrumentDef ids recorded on this track, in order of first use. */
+  instruments: string[];
+  /** Recorded notes for the lane drawing; a new array whenever the content changes. */
+  view: readonly LoopNoteView[];
+  /** 0..1 flash that jumps to 1 when the track plays a note and decays quickly. */
+  pulse: number;
+}
+
+/**
+ * idle: nothing recorded, not recording. count-in: waiting for the bar where recording starts
+ * (metronome clicks from silence). recording: a take is being captured. playing: loops play.
+ */
+export type LooperPhase = 'idle' | 'count-in' | 'recording' | 'playing';
+
+export interface LooperState {
+  bars: LoopBars;
+  phase: LooperPhase;
+  /** Track being recorded or counted in, -1 when none. */
+  recordTrack: number;
+  /** Beats left before recording starts (4..1) during the count-in, else 0. */
+  countIn: number;
+  /** 0..1 playhead position in the loop, 0 when idle. */
+  progress: number;
+  /** 0..1 how much of the current take is done (a take lasts one loop), 0 when not recording. */
+  takeProgress: number;
+  /** Loop length in seconds at the current tempo. */
+  seconds: number;
+  tracks: LoopTrackState[];
+  canUndo: boolean;
+  /** Bumped whenever recorded content, mute or solo changes, so views can redraw only then. */
+  version: number;
+}
+
+/** Looper commands. 'record' toggles: arms a track (default: the next free one) or stops its take. */
+export type LoopCommand =
+  | { type: 'record'; track?: number }
+  | { type: 'stop' }
+  | { type: 'clear'; track: number }
+  | { type: 'clear-all' }
+  | { type: 'mute'; track: number }
+  | { type: 'solo'; track: number }
+  | { type: 'undo' }
+  /** Forget everything (loops and undo history) and release the loop players: leaving the stage. */
+  | { type: 'reset' };
+
+// ---------------------------------------------------------------------------------------------
+// MIDI out (src/music/midi.ts)
+// ---------------------------------------------------------------------------------------------
+
+export interface MidiPortInfo {
+  id: string;
+  name: string;
+}
+
+export interface MidiStatus {
+  /** The browser has Web MIDI (Safari does not). */
+  supported: boolean;
+  /** Access was granted and outputs are listed. */
+  enabled: boolean;
+  /** Access was requested and is pending (permission prompt). */
+  pending: boolean;
+  /** Why access failed, '' when fine. */
+  error: string;
+  outputs: MidiPortInfo[];
+  /** The selected output (Settings.midiOut) is connected and receiving. */
+  connected: boolean;
+}
+
 export interface MusicEngine {
   readonly instruments: readonly InstrumentDef[];
   readonly scales: readonly ScaleDef[];
@@ -460,6 +565,15 @@ export interface MusicEngine {
   stopRecording(): Promise<Recording>;
   /** Release every note now (tab hidden, exit). */
   panic(): void;
+  /** Looper state for the UI. Returns the same object instance each call (mutated). */
+  looper(): LooperState;
+  /** Runs a looper command and returns a short description of what happened ('' for none). */
+  loop(cmd: LoopCommand): string;
+  /** Asks for Web MIDI access (shows the browser's permission prompt) and lists the outputs. */
+  enableMidi(): Promise<MidiStatus>;
+  midiStatus(): MidiStatus;
+  /** Subscribe to MIDI status changes (devices plugged in or out); returns an unsubscribe function. */
+  onMidiStatus(cb: (s: MidiStatus) => void): () => void;
   dispose(): void;
 }
 

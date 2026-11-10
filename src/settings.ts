@@ -1,4 +1,4 @@
-import type { ActionGesture, BeatStyle, ChordPlay, GestureAction, LeftHandRole, PlayMode, ScaleId, Settings, TriggerMode } from './types';
+import type { ActionGesture, BeatStyle, ChordPlay, GestureAction, LeftHandRole, LoopBars, PlayMode, ScaleId, Settings, TriggerMode } from './types';
 import { clamp } from './geometry';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +29,11 @@ export const DEFAULT_SETTINGS: Settings = {
     'thumbs-up': 'toggle-groove',
     rock: 'octave-up',
   },
+  loopBars: 2,
+  midiOut: '',
+  midiChannel: 1,
+  midiOnly: false,
+  cameraId: '',
 };
 
 export const ACTION_GESTURES: readonly ActionGesture[] = ['fist', 'peace', 'thumbs-up', 'rock'];
@@ -44,6 +49,7 @@ export const GESTURE_ACTIONS: readonly GestureAction[] = [
   'toggle-groove',
   'toggle-record',
 ];
+export const LOOP_BARS: readonly LoopBars[] = [1, 2, 4, 8];
 
 const STORAGE_KEY = 'orchestrator.settings.v1';
 const SCALES: readonly ScaleId[] = [
@@ -100,6 +106,11 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
     lowPower: bool(r.lowPower, d.lowPower),
     gesturesEnabled: bool(r.gesturesEnabled, d.gesturesEnabled),
     gestures: sanitizeGestures(r.gestures),
+    loopBars: LOOP_BARS.includes(r.loopBars as LoopBars) ? (r.loopBars as LoopBars) : d.loopBars,
+    midiOut: typeof r.midiOut === 'string' && r.midiOut.length <= 256 ? r.midiOut : d.midiOut,
+    midiChannel: Math.round(num(r.midiChannel, d.midiChannel, 1, 16)),
+    midiOnly: bool(r.midiOnly, d.midiOnly),
+    cameraId: typeof r.cameraId === 'string' && r.cameraId.length <= 256 ? r.cameraId : d.cameraId,
   };
 }
 

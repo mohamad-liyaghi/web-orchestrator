@@ -146,6 +146,11 @@ export class Groove {
     return this.running;
   }
 
+  /** Swing of the current pattern: off-sixteenths are late by this fraction of a sixteenth. */
+  get swing(): number {
+    return this.style.swing;
+  }
+
   setStyle(style: BeatStyle): void {
     const next = PATTERNS[style] ?? PATTERNS.pop;
     if (next === this.style) return;

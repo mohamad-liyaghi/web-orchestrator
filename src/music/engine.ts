@@ -5,6 +5,8 @@
  *     -> instrument bus -> dry + reverb send + delay send -> compressor -> limiter
  *     -> master volume -> destination (+ analyser, + recorder tap)
  *   groove -> compressor (under the instruments)
+ *   looper tracks: own players -> loop bus -> instrument bus (so reverb, master and recorder get them)
+ *   MIDI out mirrors the live voices (players' note taps)
  *
  * Tone is imported through deep module paths only: the package index creates an AudioContext
  * at import time, which browsers refuse (and warn about) before a user gesture. The context is
@@ -17,6 +19,9 @@ import './toneFixes';
 import type {
   ActionGesture,
   ChordPlay,
+  LoopCommand,
+  LooperState,
+  MidiStatus,
   FaceState,
   HandState,
   InstrumentLoadState,
@@ -34,7 +39,9 @@ import { DEFAULT_SETTINGS, mouthThresholds } from '../settings';
 import { ASSETS } from '../config';
 import { INSTRUMENTS, instrumentSpec, type InstrumentSpec } from './instruments';
 import { SampleLibrary } from './samples';
-import { SamplePlayer, SynthPlayer, type Player, type VoiceLimits } from './players';
+import { SamplePlayer, SynthPlayer, type NoteTap, type Player, type VoiceLimits } from './players';
+import { Looper } from './looper';
+import { MidiOut } from './midi';
 import { Groove, type GrooveChord } from './groove';
 import { ChordPart, STYLE_BY_FINGERS, STYLE_LABEL, chordVoicing, degreeChord, degreeFromFingers, type ChordStyle } from './chords';
 import { MasterRecorder } from './recorder';
@@ -83,6 +90,11 @@ class Channel {
 
   constructor(dest: Gain) {
     this.filter.chain(this.vibrato, this.gain, dest);
+  }
+
+  /** Gain the channel is heading to (the voice's loudness, squared). */
+  get out(): number {
+    return this.level;
   }
 
   set(time: number, brightness: number, vibrato: number, level: number): void {
@@ -205,6 +217,17 @@ class Engine implements MusicEngine {
   private ctx: Context | null = null;
   private lib: SampleLibrary | null = null;
   private bus: Gain | null = null;
+  /** Live voices -> bus (muted for MIDI-only playing). */
+  private liveBus: Gain | null = null;
+  private liveMuted = false;
+  /** Looper players -> bus. */
+  private loopBus: Gain | null = null;
+  /** Count-in clicks -> speakers (not into the recording). */
+  private clickBus: Gain | null = null;
+  private looperImpl: Looper | null = null;
+  private readonly midi = new MidiOut();
+  /** Dynamics target of the current frame (MIDI note-on velocity of sustained instruments). */
+  private frameDyn = 0;
   private reverbSend: Gain | null = null;
   private reverb: Convolver | null = null;
   private reverbLow = false;
@@ -291,6 +314,18 @@ class Engine implements MusicEngine {
   private analysedAt = -1;
 
   private readonly onGesture = (): void => this.resumeIfNeeded();
+  private readonly emptyLooper: LooperState = {
+    bars: DEFAULT_SETTINGS.loopBars,
+    phase: 'idle',
+    recordTrack: -1,
+    countIn: 0,
+    progress: 0,
+    takeProgress: 0,
+    seconds: 0,
+    tracks: [],
+    canUndo: false,
+    version: 0,
+  };
 
   constructor() {
     this.lead = this.makeVoice('lead', DEFAULT_SETTINGS.lead);
@@ -361,6 +396,9 @@ class Engine implements MusicEngine {
     this.timers.clear();
     this.stopClock();
     this.recorder?.dispose();
+    this.looperImpl?.dispose();
+    this.looperImpl = null;
+    this.midi.dispose();
     this.groove?.dispose();
     for (const v of [this.lead, this.bass]) {
       v.part.reset();
@@ -369,7 +407,7 @@ class Engine implements MusicEngine {
       v.channel?.dispose();
       v.channel = null;
     }
-    for (const n of [this.bus, this.reverbSend, this.reverb, this.delaySend, this.delay, this.delayTone, this.comp, this.limiter, this.master, this.grooveSend]) {
+    for (const n of [this.bus, this.liveBus, this.loopBus, this.clickBus, this.reverbSend, this.reverb, this.delaySend, this.delay, this.delayTone, this.comp, this.limiter, this.master, this.grooveSend]) {
       n?.dispose();
     }
     this.analyser?.disconnect();
@@ -402,6 +440,9 @@ class Engine implements MusicEngine {
     this.limiter = new Limiter(-1).connect(this.master);
     this.comp = new Compressor({ threshold: -16, ratio: 3, attack: 0.004, release: 0.2, knee: 8 }).connect(this.limiter);
     this.bus = new Gain(0.9).connect(this.comp);
+    this.liveBus = new Gain(1).connect(this.bus);
+    this.loopBus = new Gain(1).connect(this.bus);
+    this.clickBus = new Gain(0).toDestination();
     this.reverbSend = new Gain(0.3);
     this.bus.connect(this.reverbSend);
     this.setReverb(this.settings.lowPower);
@@ -411,6 +452,20 @@ class Engine implements MusicEngine {
     this.grooveSend.connect(this.reverbSend);
     this.groove = new Groove(ctx, () => this.currentGrooveChord(), this.comp);
     this.groove.output.connect(this.grooveSend);
+    this.looperImpl = new Looper({
+      ctx,
+      output: this.loopBus,
+      clickOutput: this.clickBus,
+      makePlayer: (id) => this.makeLoopPlayer(id),
+      retirePlayer: (p) => {
+        p.stopAll(this.now(), 0.08);
+        this.later(800, () => p.dispose());
+      },
+      clockChanged: () => this.syncClock(),
+      clockRunning: () => this.clockId !== null,
+      grooveRunning: () => !!this.groove?.isRunning,
+      swing: () => this.groove?.swing ?? 0,
+    });
 
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
@@ -431,7 +486,7 @@ class Engine implements MusicEngine {
 
   /** Voice channels hold a vibrato LFO, which must only start once the context runs. */
   private buildChannels(): void {
-    for (const v of [this.lead, this.bass]) v.channel ??= new Channel(this.bus!);
+    for (const v of [this.lead, this.bass]) v.channel ??= new Channel(this.liveBus!);
   }
 
   private setReverb(lowPower: boolean): void {
@@ -487,7 +542,8 @@ class Engine implements MusicEngine {
     if (!ctx) return;
     const s = this.settings;
     const chords = s.mode === 'chords' || s.leftHand === 'chords';
-    const need = s.groove || (chords && s.chordPlay === 'arp');
+    // Nothing plays in a background tab: the clock (beat, arpeggios, loops) waits for the page.
+    const need = !document.hidden && (s.groove || (chords && s.chordPlay === 'arp') || !!this.looperImpl?.needsClock);
     const t = ctx.transport;
     if (Math.abs(t.bpm.value - s.tempo) > 0.01) t.bpm.setValueAtTime(s.tempo, ctx.currentTime);
     if (need) {
@@ -501,6 +557,7 @@ class Engine implements MusicEngine {
         t.position = 0;
         this.clockId = t.scheduleRepeat((time) => this.onClock(time), '16n', 0);
         t.start(at);
+        this.looperImpl?.onClockStart();
         this.onGrid(0, at); // the Transport callback for step 0 schedules step 1
       }
     } else if (this.clockId !== null && !this.clockStopTimer) {
@@ -545,6 +602,7 @@ class Engine implements MusicEngine {
     const beatStrum = this.groove!.isRunning;
     if (s.mode === 'chords') this.lead.part.onGrid(step, time, s.chordPlay, sixteenth, beatStrum);
     else if (s.leftHand === 'chords') this.bass.part.onGrid(step, time, s.chordPlay, sixteenth, beatStrum);
+    this.looperImpl?.onGrid(step, time, sixteenth);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -600,7 +658,13 @@ class Engine implements MusicEngine {
       else this.bass.state.instrument = s.bass;
     }
     if (changed('reverb')) this.reverbSend!.gain.setTargetAtTime(s.reverb * 0.9, t, 0.05);
-    if (changed('volume')) this.master!.gain.setTargetAtTime(s.volume * s.volume, t, 0.03);
+    if (changed('volume')) {
+      this.master!.gain.setTargetAtTime(s.volume * s.volume, t, 0.03);
+      this.clickBus!.gain.setTargetAtTime(Math.max(0.15, s.volume * s.volume), t, 0.03);
+    }
+    if (changed('loopBars')) this.looperImpl!.setBars(s.loopBars);
+    if (changed('midiOut') || changed('midiChannel')) this.midi.configure(s.midiOut, s.midiChannel);
+    this.syncLiveMute();
     this.groove!.setStyle(s.beat);
     this.groove!.setHarmony(s.mode !== 'chords');
     if (s.groove) this.groove!.start();
@@ -708,8 +772,11 @@ class Engine implements MusicEngine {
     const wasSounding = v.handle >= 0 || v.part.active;
     if (old) {
       old.stopAll(t, 0.08);
+      old.tap = null;
       this.later(600, () => old.dispose());
+      this.midi.allNotesOff(v.id === 'lead' ? 0 : 1);
     }
+    next.tap = this.tapFor(v);
     next.output.connect(v.channel!.filter);
     v.player = next;
     v.handle = -1;
@@ -722,7 +789,52 @@ class Engine implements MusicEngine {
     const inUse = new Set<string>();
     for (const voice of [this.lead, this.bass]) if (voice.player) inUse.add(voice.player.spec.id);
     for (const id of this.wantedIds()) inUse.add(id);
+    this.looperImpl?.instrumentsInUse(inUse);
     this.lib!.trim(inUse);
+  }
+
+  /** A player for a looper track: same instrument, its own voices, no tap. */
+  private makeLoopPlayer(id: string): Player | null {
+    const spec = instrumentSpec(id);
+    if (spec.kind === 'synth') return new SynthPlayer(spec, this.limits);
+    const set = this.lib?.get(id);
+    return set ? new SamplePlayer(spec, set, this.ctx!, this.limits) : null;
+  }
+
+  /** Note observer of a live voice's player: feeds the looper and MIDI out. */
+  private tapFor(v: Voice): NoteTap {
+    const ch: 0 | 1 = v.id === 'lead' ? 0 : 1;
+    return {
+      on: (player, handle, midi, velocity, time) => {
+        const gain = v.channel ? v.channel.out : 1;
+        this.looperImpl?.noteOn(v.id, player.spec.id, handle, midi, velocity, gain, time);
+        if (this.midi.active) {
+          const expr = player.spec.sustained ? this.frameDyn * this.handVolume : velocity * this.handVolume;
+          this.midi.noteOn(handle, ch, midi, clamp01(Math.max(0.08, expr)), this.perfAt(time));
+        }
+      },
+      glide: (_player, handle, midi, time) => {
+        this.looperImpl?.noteGlide(handle, midi, time);
+        if (this.midi.active) this.midi.glide(handle, midi, this.perfAt(time));
+      },
+      off: (_player, handle, time) => {
+        this.looperImpl?.noteOff(handle, time);
+        this.midi.noteOff(handle, this.perfAt(time));
+      },
+    };
+  }
+
+  /** performance.now() timestamp of an audio-context time (for MIDI message timestamps). */
+  private perfAt(time: number): number {
+    return performance.now() + Math.max(0, time - this.now()) * 1000;
+  }
+
+  /** Internal sound of the live voices is off while MIDI-only playing reaches a device. */
+  private syncLiveMute(): void {
+    const mute = this.settings.midiOnly && this.midi.active;
+    if (mute === this.liveMuted || !this.liveBus) return;
+    this.liveMuted = mute;
+    this.liveBus.gain.setTargetAtTime(mute ? 0 : 1, this.now(), 0.02);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -803,6 +915,7 @@ class Engine implements MusicEngine {
       this.mouthGate = face ? (this.mouthGate ? mo > closeTh : mo > openTh) : false;
     }
     const dynTarget = s.trigger === 'mouth' ? this.mouthDynamics(face, closeTh) : 0.8;
+    this.frameDyn = dynTarget;
     this.playedChord = null;
     this.playedDegree = 0;
 
@@ -827,8 +940,22 @@ class Engine implements MusicEngine {
       }
     }
 
+    this.feedTaps();
     this.updateMetrics(t);
     return this.voiceStates;
+  }
+
+  /** Per frame: the loudness of each live voice for notes being recorded and for MIDI CC 11. */
+  private feedTaps(): void {
+    const looper = this.looperImpl;
+    const midi = this.midi.active;
+    if (midi) this.syncLiveMute();
+    if (!midi && !looper?.capturing) return;
+    for (const v of [this.lead, this.bass]) {
+      const out = v.channel ? v.channel.out : 0;
+      looper?.voiceLevel(v.id, out);
+      if (midi && (v.handle >= 0 || v.part.active)) this.midi.expression(v.id === 'lead' ? 0 : 1, Math.sqrt(out));
+    }
   }
 
   private isMuted(hand: HandState | null): boolean {
@@ -1269,10 +1396,17 @@ class Engine implements MusicEngine {
     m.sessionMs = this.unlockedAt ? nowMs - this.unlockedAt : 0;
   }
 
-  /** Bar and beat (1-based) sounding now from the Transport; zeros when the groove is off. */
+  /** Bar and beat (1-based) sounding now: in the loop while loops run, else from the Transport
+   *  while the groove runs; zeros otherwise. */
   private position(): void {
     const m = this.m;
     const ctx = this.ctx;
+    const loopBeat = this.looperImpl ? this.looperImpl.loopBeat() : -1;
+    if (loopBeat >= 0) {
+      m.bar = Math.floor(loopBeat / 4) + 1;
+      m.beat = (loopBeat % 4) + 1;
+      return;
+    }
     if (!ctx || !this.groove?.isRunning || this.clockId === null || ctx.transport.state !== 'started') {
       m.bar = 0;
       m.beat = 0;
@@ -1401,8 +1535,43 @@ class Engine implements MusicEngine {
     this.degree.reset();
     this.styleFingers.reset();
     this.groove?.silence();
+    this.looperImpl?.panic();
+    this.midi.allNotesOff();
     this.stopClock();
     this.m.activeMidi.length = 0;
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Looper / MIDI
+  // -------------------------------------------------------------------------------------------
+
+  looper(): LooperState {
+    return this.looperImpl ? this.looperImpl.state() : this.emptyLooper;
+  }
+
+  loop(cmd: LoopCommand): string {
+    if (!this.looperImpl || this.disposed) return '';
+    this.resumeIfNeeded();
+    return this.looperImpl.run(cmd);
+  }
+
+  async enableMidi(): Promise<MidiStatus> {
+    await this.midi.enable();
+    this.midi.configure(this.settings.midiOut, this.settings.midiChannel);
+    this.syncLiveMute();
+    return this.midiStatus();
+  }
+
+  midiStatus(): MidiStatus {
+    const s = this.midi.status;
+    return { ...s, outputs: s.outputs.slice() };
+  }
+
+  onMidiStatus(cb: (s: MidiStatus) => void): () => void {
+    return this.midi.onChange((s) => {
+      this.syncLiveMute();
+      cb(s);
+    });
   }
 }
 
