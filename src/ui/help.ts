@@ -69,6 +69,26 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
     styleList,
   );
 
+  // For musicians: technique and studio features.
+  const musician = h('ul', { class: 'help-musician' });
+  for (const [t, d] of [
+    ['Technique', 'Controls › Technique shows what matters for the instruments playing. Auto play style makes each one play like the real thing: guitars strum real chord shapes string by string, keys use the sustain pedal, strings, winds and voices glide.'],
+    ['Guitars', 'Strum patterns (Single, Down-up, Folk, Pop, Reggae, Ballad), palm mute and voicings: guitar shapes, close, open, drop-2, spread.'],
+    ['Arpeggiator', 'Chord play Arp: up, down, up-down, random, broken or Alberti, at 1/4 to 1/16-triplet, over one to three octaves.'],
+    ['Bass and harmony', 'Bass lines under chords (root, root-fifth, octave, walking), a second voice on melodies (3rd above, 6th below, 5th above, octave) and humanize.'],
+    ['Studio', 'Tuning (A4 = 415–466 Hz), transpose ±12, time signatures 4/4, 3/4, 6/8, 5/4, 7/8, swing, count-in, velocity curve, attack and release.'],
+    ['Effects', 'Room, hall, plate or cathedral reverb, tempo-synced delay, chorus, 3-band EQ, compressor and stereo width. Double-click any studio slider to reset it.'],
+  ] as const) {
+    musician.append(h('li', null, h('span', { class: 'hm-name', text: t }), h('span', { class: 'hm-text', text: d })));
+  }
+  const musicianSec = h(
+    'section',
+    { class: 'help-musicians' },
+    h('h3', { class: 'sheet-sec-title', text: 'For musicians' }),
+    musician,
+    h('p', { class: 'help-p', text: 'Try the presets in Controls › Lead: Folk Guitar, Reggae Skank, Jazz Keys, Waltz, Harp Rolls and Synthwave Arp.' }),
+  );
+
   const keys = h('dl', { class: 'shortcuts' });
   for (const [k, d] of [
     ['R', 'Record / stop'],
@@ -95,6 +115,7 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
       h('section', null, h('h3', { class: 'sheet-sec-title', text: 'Gesture guide' }), guide),
       h('section', null, h('h3', { class: 'sheet-sec-title', text: 'Hold a pose (½ s)' }), gestureList, gestureNote),
       chordsSec,
+      musicianSec,
       h('section', null, h('h3', { class: 'sheet-sec-title', text: 'Tips' }), tips),
       h('section', { class: 'hide-touch' }, h('h3', { class: 'sheet-sec-title', text: 'Keyboard' }), keys),
     ),
