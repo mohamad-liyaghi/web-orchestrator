@@ -1,5 +1,8 @@
 import type {
   ActionGesture,
+  BeatStyle,
+  ChordPlay,
+  PlayMode,
   GestureAction,
   InstrumentDef,
   InstrumentLoadState,
@@ -37,6 +40,25 @@ export const TRIGGERS: ReadonlyArray<{ id: TriggerMode; label: string; hint: str
   { id: 'mouth', label: 'Mouth', hint: 'Open your mouth to play; wider is louder.' },
   { id: 'pinch', label: 'Pinch', hint: 'Touch thumb and index of the playing hand to sound a note.' },
   { id: 'always', label: 'Hands', hint: 'Plays whenever a hand is up. Great for the theremin.' },
+];
+
+export const MODES: ReadonlyArray<{ id: PlayMode; label: string }> = [
+  { id: 'melody', label: 'Melody' },
+  { id: 'chords', label: 'Chords' },
+];
+
+const CHORD_PLAY: ReadonlyArray<{ id: ChordPlay; label: string }> = [
+  { id: 'block', label: 'Block' },
+  { id: 'strum', label: 'Strum' },
+  { id: 'arp', label: 'Arp' },
+];
+
+const BEATS: ReadonlyArray<{ id: BeatStyle; label: string }> = [
+  { id: 'pop', label: 'Pop' },
+  { id: 'lofi', label: 'Lo-fi' },
+  { id: 'rock', label: 'Rock' },
+  { id: 'house', label: 'House' },
+  { id: 'metronome', label: 'Metronome' },
 ];
 
 const GESTURE_NAME: Record<ActionGesture, string> = {
@@ -200,10 +222,26 @@ export class Dock {
     more.append(icon('sliders'), h('span', { text: 'Controls' }));
     more.addEventListener('click', () => this.toggleTab(this.openState ? this.tab : 'play'));
     b.push(() => more.setAttribute('aria-expanded', String(this.openState)));
+    b.push((s) => {
+      // Octave is a melody control; chords mode voices chords itself.
+      setClass(octave, 'is-dim', s.mode === 'chords');
+      setClass(this.dock, 'is-chords', s.mode === 'chords');
+    });
 
     this.dock.append(
       handle,
-      h('div', { class: 'dock-row' }, this.leadPill, this.leftPill, h('span', { class: 'dock-sep' }), trig, octave, groove, more),
+      h(
+        'div',
+        { class: 'dock-row' },
+        segmented('Play mode', MODES, (id) => set({ mode: id }), b, (s) => s.mode, 'seg-mode'),
+        this.leadPill,
+        this.leftPill,
+        h('span', { class: 'dock-sep' }),
+        trig,
+        octave,
+        groove,
+        more,
+      ),
     );
 
     // ---- Sheet --------------------------------------------------------------------------
@@ -236,7 +274,13 @@ export class Dock {
     close.addEventListener('click', () => this.close());
     const head = h('div', { class: 'sheet-head' }, h('h2', { class: 'sr-only', id: titleId, text: 'Controls' }), tabs, close);
     const body = h('div', { class: 'sheet-body' });
-    this.sheet.append(sheetHandle, head, body);
+    const sheetMode = h(
+      'div',
+      { class: 'sheet-mode' },
+      h('span', { class: 'sheet-sec-title', text: 'Mode' }),
+      segmented('Play mode', MODES, (id) => set({ mode: id }), b, (s) => s.mode, 'seg-wide seg-mode'),
+    );
+    this.sheet.append(sheetHandle, sheetMode, head, body);
 
     // Lead pane: presets + instrument cards.
     const presetRow = h('div', { class: 'preset-row', role: 'list', 'aria-label': 'Presets' });
@@ -258,9 +302,14 @@ export class Dock {
     this.leftNote = h('p', { class: 'ctl-note' });
     this.leftGrid = h('div', { class: 'inst-groups' });
     this.leftInstWrap = section('Left-hand instrument', this.leftNote, this.leftGrid);
-    this.pane('left', section('What your left hand does', roleSeg, this.roleHint), this.leftInstWrap);
+    const roleSec = section('What your left hand does', roleSeg, this.roleHint);
+    this.pane('left', roleSec, this.leftInstWrap);
     b.push((s) => {
-      this.roleHint.textContent = LEFT_ROLES.find((r) => r.id === s.leftHand)?.hint ?? '';
+      this.roleHint.textContent =
+        s.mode === 'chords'
+          ? 'Chords mode: your left hand’s finger pattern picks the chord (see the chord guide). Switch to Melody to use these roles.'
+          : (LEFT_ROLES.find((r) => r.id === s.leftHand)?.hint ?? '');
+      setClass(roleSeg, 'is-dim', s.mode === 'chords');
       const uses = s.leftHand === 'bass' || s.leftHand === 'chords';
       setClass(this.leftInstWrap, 'is-dim', !uses);
       this.leftNote.textContent = uses
@@ -307,6 +356,27 @@ export class Dock {
       o2d.disabled = s.octave <= -2;
       o2u.disabled = s.octave >= 2;
     });
+    const chordPlaySeg = segmented('Chord play', CHORD_PLAY, (id) => set({ chordPlay: id }), b, (s) => s.chordPlay, 'seg-wide');
+    const beatId = uid('beat');
+    const beatSel = h('select', { id: beatId, class: 'select' });
+    for (const bt of BEATS) beatSel.append(h('option', { value: bt.id, text: bt.label }));
+    beatSel.addEventListener('change', () => set({ beat: beatSel.value as BeatStyle }));
+    b.push((s) => {
+      if (beatSel.value !== s.beat) beatSel.value = s.beat;
+    });
+    const tap = h('button', { type: 'button', class: 'btn tap-btn', 'aria-label': 'Tap tempo' });
+    tap.append(icon('music'), h('span', { text: 'Tap tempo' }));
+    tap.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.tapTempo(tap);
+    });
+    tap.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.tapTempo(tap);
+      }
+    });
+    const beatRow = h('div', { class: 'beat-row' }, h('label', { for: beatId, class: 'ctl-name', text: 'Style' }), beatSel, tap);
     const span = slider('Notes across the screen', 8, 24, 1, (v) => `${v}`, (v) => set({ span: v }), b, (s) => s.span);
     const tempo = slider('Tempo', 60, 160, 1, (v) => `${v} BPM`, (v) => set({ tempo: v }), b, (s) => s.tempo);
     const reverb = slider('Reverb', 0, 1, 0.01, (v) => `${Math.round(v * 100)}%`, (v) => set({ reverb: v }), b, (s) => s.reverb);
@@ -319,6 +389,7 @@ export class Dock {
         h(
           'div',
           null,
+          section('Chords', chordPlaySeg, toggle('Tilt controls', 'Chords mode: tilt the right wrist for the filter, the left to swap major/minor.', (v) => set({ tiltControls: v }), b, (s) => s.tiltControls)),
           section('Trigger', trigSeg, this.trigHint, sens.el),
           section('Key', keyGrid),
           section('Scale', this.scaleRow),
@@ -327,7 +398,7 @@ export class Dock {
           'div',
           null,
           section('Range', h('div', { class: 'ctl-row' }, h('span', { class: 'ctl-name', text: 'Octave' }), octave2), span.el),
-          section('Beat', toggle('Backing beat', 'A soft groove that follows the tempo.', (v) => set({ groove: v }), b, (s) => s.groove), tempo.el),
+          section('Beat', toggle('Backing beat', 'A groove that follows the tempo.', (v) => set({ groove: v }), b, (s) => s.groove), beatRow, tempo.el),
           section('Mix', reverb.el, volume.el),
         ),
       ),
@@ -342,7 +413,7 @@ export class Dock {
       sel.addEventListener('change', () => set({ gestures: { ...this.settings.gestures, [g]: sel.value as GestureAction } }));
       b.push((s) => {
         if (sel.value !== s.gestures[g]) sel.value = s.gestures[g];
-        sel.disabled = !s.gesturesEnabled;
+        sel.disabled = !s.gesturesEnabled || s.mode === 'chords';
       });
       this.gestureRows.append(
         h(
@@ -354,11 +425,16 @@ export class Dock {
         ),
       );
     }
-    b.push((s) => setClass(this.gestureRows, 'is-dim', !s.gesturesEnabled));
+    const chordsNote = h('p', { class: 'ctl-note chords-note', text: 'Gesture actions are paused in Chords mode: every finger pattern plays a chord.' });
+    b.push((s) => {
+      setClass(this.gestureRows, 'is-dim', !s.gesturesEnabled || s.mode === 'chords');
+      chordsNote.hidden = s.mode !== 'chords';
+    });
     this.pane(
       'gestures',
       section(
         'Hand gestures',
+        chordsNote,
         toggle('Gesture actions', 'Hold a pose for half a second to trigger its action.', (v) => set({ gesturesEnabled: v }), b, (s) => s.gesturesEnabled),
         this.gestureRows,
         h('p', { class: 'ctl-hint', text: 'Mute works while you hold it. In Chords mode the left hand’s fingers pick chords, so its poses are ignored.' }),
@@ -552,11 +628,13 @@ export class Dock {
       btn.setAttribute('aria-label', `${roleText}: ${name}. Change`);
     };
     const lead = this.instruments.find((i) => i.id === s.lead);
-    paint(this.leadPill, lead, lead?.name ?? s.lead, 'Lead', false);
-    const uses = s.leftHand === 'bass' || s.leftHand === 'chords';
+    const chords = s.mode === 'chords';
+    paint(this.leadPill, lead, lead?.name ?? s.lead, chords ? 'Chords' : 'Lead', false);
+    const uses = chords || s.leftHand === 'bass' || s.leftHand === 'chords';
     const left = uses ? this.instruments.find((i) => i.id === s.bass) : undefined;
     const roleName = LEFT_ROLES.find((r) => r.id === s.leftHand)?.label ?? 'Left';
-    paint(this.leftPill, left, uses ? (left?.name ?? s.bass) : roleName, uses ? `Left · ${roleName}` : 'Left hand', !uses && s.leftHand === 'off');
+    const roleText = chords ? 'Bass line' : uses ? `Left · ${roleName}` : 'Left hand';
+    paint(this.leftPill, left, uses ? (left?.name ?? s.bass) : roleName, roleText, !uses && s.leftHand === 'off');
     if (!uses) {
       (this.leftPill.querySelector('.pill-glyph') as HTMLElement).textContent = s.leftHand === 'volume' ? '◐' : '–';
       this.leftPill.style.setProperty('--c', '#3cf2ff');
@@ -620,6 +698,24 @@ export class Dock {
     } catch {
       this.deps.toast(`Copy this link to share your setup: ${url}`);
     }
+  }
+
+  private taps: number[] = [];
+
+  /** Tap tempo: average of the last 4 intervals, forgets taps after 2 s of silence. */
+  private tapTempo(btn: HTMLElement): void {
+    const now = performance.now();
+    const last = this.taps[this.taps.length - 1];
+    if (last !== undefined && now - last > 2000) this.taps.length = 0;
+    this.taps.push(now);
+    if (this.taps.length > 5) this.taps.shift();
+    btn.classList.remove('is-tap');
+    void btn.offsetWidth;
+    btn.classList.add('is-tap');
+    if (this.taps.length < 2) return;
+    const span = this.taps[this.taps.length - 1]! - this.taps[0]!;
+    const bpm = Math.round(Math.max(60, Math.min(160, 60000 / (span / (this.taps.length - 1)))));
+    this.deps.callbacks.onSettings({ tempo: bpm });
   }
 
   private reset(): void {

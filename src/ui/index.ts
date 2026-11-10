@@ -10,6 +10,7 @@ import './styles/stage.css';
 import './styles/metrics.css';
 import './styles/dock.css';
 import './styles/overlays.css';
+import './styles/chords.css';
 
 export { mountLanding } from './landing';
 export { mountStage } from './stage';

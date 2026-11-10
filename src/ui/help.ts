@@ -1,8 +1,9 @@
 import type { ActionGesture, Settings } from '../types';
 import { ACTION_GESTURES } from '../settings';
 import { ACTION_LABEL, GESTURE_GLYPH } from '../gestures';
-import { h, uid } from './dom';
+import { h, setClass, uid } from './dom';
 import { icon } from './icons';
+import { DEGREE_FINGERS, DEGREE_PATTERNS, STYLES, fingerIcon, romanFor } from './chords';
 
 const GESTURE_NAME: Record<ActionGesture, string> = {
   fist: 'Fist',
@@ -48,6 +49,25 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
     tips.append(h('li', null, b, h('span', { text: t })));
   }
 
+  // Chords mode finger chart.
+  const chart = h('ol', { class: 'help-chart' });
+  DEGREE_PATTERNS.forEach((p, i) => {
+    const li = h('li', null, h('span', { class: 'hc-roman', text: romanFor(i, undefined) }), h('span', { class: 'hc-text', text: DEGREE_FINGERS[i] }));
+    li.prepend(fingerIcon(p));
+    chart.append(li);
+  });
+  const styleList = h('ul', { class: 'help-styles' });
+  for (const st of STYLES) styleList.append(h('li', null, h('kbd', { text: String(st.n) }), h('span', { text: st.label })));
+  const chordsSec = h(
+    'section',
+    { class: 'help-chords' },
+    h('h3', { class: 'sheet-sec-title', text: 'Chords mode' }),
+    h('p', { class: 'help-p', text: 'Left hand: the finger pattern picks the chord of the key. Tilt the left wrist to swap major/minor.' }),
+    chart,
+    h('p', { class: 'help-p', text: 'Right hand: height sets the volume, raised fingers pick the style, tilt is the filter, thumb out drops an octave, a fist mutes.' }),
+    styleList,
+  );
+
   const keys = h('dl', { class: 'shortcuts' });
   for (const [k, d] of [
     ['R', 'Record / stop'],
@@ -71,6 +91,7 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
       { class: 'help-body' },
       h('section', null, h('h3', { class: 'sheet-sec-title', text: 'Gesture guide' }), guide),
       h('section', null, h('h3', { class: 'sheet-sec-title', text: 'Hold a pose (½ s)' }), gestureList, gestureNote),
+      chordsSec,
       h('section', null, h('h3', { class: 'sheet-sec-title', text: 'Tips' }), tips),
       h('section', { class: 'hide-touch' }, h('h3', { class: 'sheet-sec-title', text: 'Keyboard' }), keys),
     ),
@@ -90,9 +111,13 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
         ),
       );
     }
-    gestureNote.textContent = s.gesturesEnabled
-      ? 'Change these in Controls › Gestures.'
-      : 'Gesture actions are switched off. Turn them on in Controls › Gestures.';
+    gestureNote.textContent =
+      s.mode === 'chords'
+        ? 'Paused in Chords mode: every finger pattern plays a chord.'
+        : s.gesturesEnabled
+          ? 'Change these in Controls › Gestures.'
+          : 'Gesture actions are switched off. Turn them on in Controls › Gestures.';
+    setClass(gestureList, 'is-dim', s.mode === 'chords' || !s.gesturesEnabled);
   };
   return { el, refresh };
 }

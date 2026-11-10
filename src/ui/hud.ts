@@ -23,7 +23,7 @@ const FONT_TAG = '700 10px "JetBrains Mono Variable", "JetBrains Mono", ui-monos
 const MAX_PARTICLES = 160;
 const MAX_SPRITES = 48;
 
-type Role = 'lead' | 'bass' | 'chords' | 'volume' | 'idle';
+type Role = 'lead' | 'bass' | 'chords' | 'volume' | 'degree' | 'style' | 'idle';
 
 interface Slot {
   seen: boolean;
@@ -54,6 +54,9 @@ interface Slot {
   /** Gesture hold progress 0..1 (smoothed), for the ring. */
   hold: number;
   holdGlyph: string;
+  /** Smoothed wrist roll (radians) for the tilt arc. */
+  roll: number;
+  borrowed: boolean;
 }
 
 const makeSlot = (): Slot => ({
@@ -82,6 +85,8 @@ const makeSlot = (): Slot => ({
   glyphW: 0,
   hold: 0,
   holdGlyph: '',
+  roll: 0,
+  borrowed: false,
 });
 
 /** Frame-rate independent exponential smoothing factor. */
@@ -113,6 +118,7 @@ export class HudRenderer {
   private readonly slots: [Slot, Slot] = [makeSlot(), makeSlot()];
   private readonly face = { seen: false, alpha: 0, x: 0, y: 0, w: 0, h: 0, init: false, noFaceMs: 0 };
   private lanesAlpha = 0;
+  private tilt = false;
   private sprites = new Map<string, HTMLCanvasElement>();
   private bandGrads = new Map<string, CanvasGradient>();
   private laneLayer: HTMLCanvasElement | null = null;
@@ -215,16 +221,21 @@ export class HudRenderer {
 
     // ---- lanes --------------------------------------------------------------------------
     this.lanesAlpha += ((hands.length ? 1 : 0.28) - this.lanesAlpha) * ease(dt, 220);
-    if (settings.lanes && this.lanesAlpha > 0.01) {
+    const chordsMode = settings.mode === 'chords';
+    this.tilt = chordsMode && settings.tiltControls;
+    if (settings.lanes && !chordsMode && this.lanesAlpha > 0.01) {
       this.drawLanes(data.lanes.lead, data.lanes.bass, settings, sy, oy, lead, bass, leadColor, bassColor);
     }
 
     // ---- hands --------------------------------------------------------------------------
     for (const s of this.slots) s.seen = false;
-    for (const hand of hands) {
+    for (let i = 0; i < hands.length; i++) {
+      const hand = hands[i]!;
       const slot = this.slots[hand.id & 1]!;
       slot.seen = true;
-      this.updateSlot(slot, hand, dt, sx, sy, ox, oy, data, settings, lead, bass, leadColor, bassColor);
+      // Chords mode: the left (or only) hand picks the degree, the right hand the style + volume.
+      const chordRole: Role | null = chordsMode ? (hands.length === 2 && i === 1 ? 'style' : 'degree') : null;
+      this.updateSlot(slot, hand, dt, sx, sy, ox, oy, data, settings, lead, bass, leadColor, bassColor, chordRole);
       const pend = data.pendingGesture;
       const target = pend && pend.handId === hand.id ? pend.progress : 0;
       if (pend && pend.handId === hand.id) slot.holdGlyph = GESTURE_GLYPH[pend.gesture];
@@ -249,7 +260,7 @@ export class HudRenderer {
 
     // ---- particles ----------------------------------------------------------------------
     if (fancy) {
-      const leadSlot = lead && lead.handId !== null ? this.slots[lead.handId & 1]! : null;
+      const leadSlot = chordsMode ? this.degreeSlot() : lead && lead.handId !== null ? this.slots[lead.handId & 1]! : null;
       if (lead && lead.gate && leadSlot && leadSlot.seen) {
         this.emitAcc += (dt / 1000) * (24 + 70 * lead.velocity);
         this.particleColor = leadColor;
@@ -448,11 +459,15 @@ export class HudRenderer {
     bass: VoiceState | null,
     leadColor: string,
     bassColor: string,
+    chordRole: Role | null,
   ): void {
     // Role + color
     let role: Role = 'idle';
     let voice: VoiceState | null = null;
-    if (lead && lead.handId === hand.id) {
+    if (chordRole) {
+      role = chordRole;
+      voice = chordRole === 'degree' ? lead : null;
+    } else if (lead && lead.handId === hand.id) {
       role = 'lead';
       voice = lead;
     } else if (data.metrics.volumeHandId === hand.id) role = 'volume';
@@ -461,12 +476,21 @@ export class HudRenderer {
       voice = bass;
     }
     slot.role = role;
-    slot.color = role === 'lead' ? leadColor : role === 'bass' || role === 'chords' ? bassColor : role === 'volume' ? NEUTRAL : IDLE;
+    slot.color =
+      role === 'lead' || role === 'degree'
+        ? leadColor
+        : role === 'bass' || role === 'chords'
+          ? bassColor
+          : role === 'volume' || role === 'style'
+            ? NEUTRAL
+            : IDLE;
+    slot.roll += (hand.roll - slot.roll) * ease(dt, 80);
+    slot.borrowed = role === 'degree' && data.metrics.borrowed;
     slot.gate = !!voice?.gate;
     slot.velocity = voice?.velocity ?? 0;
     if (voice?.onset) slot.pulse = 0;
     else slot.pulse += dt;
-    slot.gauge += ((role === 'volume' ? data.metrics.handVolume : 0) - slot.gauge) * ease(dt, 60);
+    slot.gauge += ((role === 'volume' || role === 'style' ? data.metrics.handVolume : 0) - slot.gauge) * ease(dt, 60);
 
     // Screen-space box, padded ~12%, smoothed.
     const b = hand.box;
@@ -503,9 +527,10 @@ export class HudRenderer {
     // Label: compare the parts, rebuild + measure only when one changed (no per-frame strings).
     const g = hand.gesture;
     const glyph = g === 'fist' || g === 'peace' || g === 'thumbs-up' || g === 'rock' ? GESTURE_GLYPH[g] : '';
+    const m = data.metrics;
     const inst = voice ? voice.instrument : '';
-    const note = voice ? voice.note : '';
-    const pct = role === 'volume' ? Math.round(data.metrics.handVolume * 100) : -1;
+    const note = role === 'degree' ? m.roman : role === 'style' ? m.chordStyle : voice ? voice.note : '';
+    const pct = role === 'volume' || role === 'style' ? Math.round(m.handVolume * 100) : role === 'degree' ? (m.borrowed ? 1 : 0) : -1;
     const lk = slot.lk;
     if (lk.role === role && lk.inst === inst && lk.note === note && lk.pct === pct && lk.glyph === glyph && lk.left === settings.leftHand && !slot.dirty) return;
     lk.role = role;
@@ -527,6 +552,12 @@ export class HudRenderer {
     } else if (role === 'volume') {
       roleText = 'VOLUME';
       rest = ` ${pct}%`;
+    } else if (role === 'degree') {
+      roleText = 'CHORD';
+      rest = ` · ${note || '—'}${pct === 1 ? ' · borrowed' : ''}`;
+    } else if (role === 'style') {
+      roleText = 'STYLE';
+      rest = ` · ${note || '—'} · VOL ${pct}%`;
     } else {
       roleText = settings.leftHand === 'off' ? 'LEFT HAND' : 'HAND';
       rest = settings.leftHand === 'off' ? ' · off' : '';
@@ -692,7 +723,7 @@ export class HudRenderer {
     }
 
     // Volume gauge beside the volume hand (on the outer side).
-    if (slot.role === 'volume') {
+    if (slot.role === 'volume' || slot.role === 'style') {
       const gx = x - 16 < 6 ? x + w + 10 : x - 16;
       const gh = h;
       ctx.globalAlpha = alpha * 0.5;
@@ -710,7 +741,45 @@ export class HudRenderer {
       for (let i = 1; i < 10; i++) ctx.fillRect(gx, y + (gh * i) / 10, 6, 1);
     }
 
-    // Fingertip reticle (lead / bass voices; volume hand gets a simple dot).
+    // Tilt arc (chords mode): right hand = filter, left hand = major/minor swap.
+    if ((slot.role === 'style' || slot.role === 'degree') && this.tilt) {
+      const rad = Math.max(22, Math.min(40, w * 0.32));
+      const cx = x + w / 2;
+      const cy = Math.min(this.h - 8, y + h + rad + 10);
+      const a0 = -Math.PI / 2 - 1.05;
+      const a1 = -Math.PI / 2 + 1.05;
+      ctx.globalAlpha = alpha * 0.4;
+      ctx.strokeStyle = 'rgba(200,215,255,0.5)';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, a0, a1);
+      ctx.stroke();
+      const roll = Math.max(-1.05, Math.min(1.05, slot.roll));
+      const an = -Math.PI / 2 + roll;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = slot.borrowed ? '#ff3dcb' : color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, -Math.PI / 2, an, roll < 0);
+      ctx.stroke();
+      ctx.fillStyle = WHITE;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(an) * rad, cy + Math.sin(an) * rad, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = FONT_TAG;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = alpha * 0.75;
+      ctx.fillStyle = slot.borrowed ? '#ff3dcb' : WHITE;
+      ctx.fillText(slot.role === 'style' ? 'FILTER' : slot.borrowed ? 'MAJ ⇄ MIN' : 'TILT', cx, cy - rad * 0.35);
+      ctx.textAlign = 'left';
+    }
+
+    // Fingertip reticle: melody voices only (chords mode reads the whole hand).
+    if (slot.role === 'degree' || slot.role === 'style') {
+      ctx.globalAlpha = 1;
+      return;
+    }
     const r = 12 + pulse * 3;
     const tx = slot.tipX;
     const ty = slot.tipY;
@@ -748,6 +817,11 @@ export class HudRenderer {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+  }
+
+  private degreeSlot(): Slot | null {
+    for (const s of this.slots) if (s.seen && s.role === 'degree') return s;
+    return null;
   }
 
   // ---- particles ------------------------------------------------------------------------

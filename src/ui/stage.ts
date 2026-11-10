@@ -22,6 +22,7 @@ import { HudRenderer } from './hud';
 import { icon, logoMark } from './icons';
 import { MetricsStrip } from './metrics';
 import { buildHelp } from './help';
+import { ChordDeck } from './chords';
 
 type FrameState = FrameVerdict | 'no-face' | 'waiting';
 
@@ -70,6 +71,7 @@ class Stage implements StageView {
   private settings: Settings = { ...DEFAULT_SETTINGS };
   private readonly hud: HudRenderer;
   private readonly metrics: MetricsStrip;
+  private readonly chordDeck = new ChordDeck();
   private readonly dock: Dock;
   private readonly ro: ResizeObserver;
   private destroyed = false;
@@ -183,7 +185,7 @@ class Stage implements StageView {
     // ---- bottom: metrics + dock ---------------------------------------------------------
     this.metrics = new MetricsStrip(this.instruments);
     this.dock = new Dock({ callbacks, toast: (m) => this.toast(m) });
-    const bottom = h('div', { class: 'bottom' }, this.metrics.el, this.dock.dock);
+    const bottom = h('div', { class: 'bottom' }, this.chordDeck.el, this.metrics.el, this.dock.dock);
 
     // ---- boot overlay -------------------------------------------------------------------
     this.bootLabel = new TextSlot(h('p', { class: 'boot-label' }));
@@ -252,6 +254,8 @@ class Stage implements StageView {
     this.metrics.setScale(s, this.scales);
     this.hud.setLowPower(s.lowPower);
     this.helpRefresh(s);
+    this.chordDeck.setVisible(s.mode === 'chords');
+    setClass(this.el, 'is-chords', s.mode === 'chords');
     this.syncLite();
   }
 
@@ -306,6 +310,7 @@ class Stage implements StageView {
 
     this.hud.draw(data, s, now);
     this.metrics.update(data, s, now);
+    this.chordDeck.update(data.metrics, s);
     this.updateStatus(data, now);
     this.updateCoach(data, dt);
     this.updateFlash(data, now);

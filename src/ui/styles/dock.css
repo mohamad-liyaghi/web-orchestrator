@@ -1114,3 +1114,116 @@ kbd {
     width: min(640px, 100%);
   }
 }
+
+/* Mode switch (Melody | Chords) */
+.seg-mode {
+  background: linear-gradient(135deg, rgba(60, 242, 255, 0.08), rgba(255, 61, 203, 0.08));
+  border-color: rgba(139, 92, 246, 0.35);
+}
+
+.seg-mode .seg-btn {
+  min-height: 42px;
+  font-weight: 600;
+}
+
+.seg-mode .seg-btn.is-on {
+  color: var(--bg);
+  background: var(--aurora);
+  box-shadow: 0 2px 16px -4px rgba(139, 92, 246, 0.9);
+}
+
+.sheet-mode {
+  display: none;
+}
+
+.dock .is-dim,
+.stepper.is-dim {
+  opacity: 0.4;
+}
+
+.beat-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.tap-btn {
+  border-radius: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tap-btn.is-tap {
+  animation: tap 260ms var(--ease-out);
+}
+
+@keyframes tap {
+  0% {
+    background: var(--magenta);
+    color: var(--bg);
+    transform: scale(0.94);
+  }
+}
+
+.chords-note {
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 181, 71, 0.35);
+  background: rgba(255, 181, 71, 0.08);
+  color: #ffd79b;
+}
+
+.chords-note[hidden] {
+  display: none;
+}
+
+@media (max-width: 768px), (max-height: 500px) {
+  .sheet-mode {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px 8px;
+  }
+
+  .sheet-mode .sheet-sec-title {
+    margin: 0;
+  }
+
+  .sheet-mode .seg {
+    flex: 1 1 auto;
+  }
+
+  .dock-row > .seg-mode {
+    flex: none;
+  }
+
+  .dock-row > .seg-mode .seg-btn {
+    padding: 0 10px;
+    font-size: 0.8rem;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dock-row > .stepper {
+    display: none;
+  }
+
+  .pill-role {
+    font-size: 0.56rem;
+  }
+
+  .pill-name {
+    font-size: 0.84rem;
+  }
+
+  .pill-glyph {
+    display: none;
+  }
+
+  .pill {
+    padding-left: 10px;
+  }
+}

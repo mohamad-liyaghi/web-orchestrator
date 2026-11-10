@@ -113,7 +113,12 @@ export class MetricsStrip {
     }
     setClass(this.lead.el, 'is-on', !!lead?.gate);
 
-    switch (settings.leftHand) {
+    switch (settings.mode === 'chords' ? 'style' : settings.leftHand) {
+      case 'style':
+        this.leftLabel.set('Style');
+        this.left.value.set(m.chordStyle || '—');
+        if (slow) this.left.sub.set(m.volumeHandId !== null ? `vol ${Math.round(m.handVolume * 100)}%` : '');
+        break;
       case 'volume':
         this.leftLabel.set('Hand vol');
         if (slow) this.left.value.set(m.volumeHandId !== null ? `${Math.round(m.handVolume * 100)}%` : '—');
