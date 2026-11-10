@@ -74,6 +74,8 @@ class Stage implements StageView {
   private readonly chordDeck = new ChordDeck();
   private readonly dock: Dock;
   private readonly ro: ResizeObserver;
+  private readonly bottomRo: ResizeObserver;
+  private bottomH = -1;
   private destroyed = false;
 
   // top bar
@@ -228,6 +230,16 @@ class Stage implements StageView {
       }
     });
     this.ro.observe(this.viewport);
+    // The camera view (and so the play zone) ends where the bottom controls begin, so the lowest
+    // notes are never hidden behind the metrics strip or the dock.
+    this.bottomRo = new ResizeObserver(() => {
+      const hgt = Math.round(bottom.getBoundingClientRect().height);
+      if (hgt !== this.bottomH) {
+        this.bottomH = hgt;
+        this.el.style.setProperty('--bottom-h', `${hgt}px`);
+      }
+    });
+    this.bottomRo.observe(bottom);
     const r = this.viewport.getBoundingClientRect();
     this.hud.resize(r.width || window.innerWidth, r.height || window.innerHeight);
     document.fonts?.ready.then(() => !this.destroyed && this.hud.invalidateText()).catch(() => undefined);
@@ -353,6 +365,7 @@ class Stage implements StageView {
     if (this.destroyed) return;
     this.destroyed = true;
     this.ro.disconnect();
+    this.bottomRo.disconnect();
     window.removeEventListener('keydown', this.onKey);
     document.removeEventListener('fullscreenchange', this.onFullscreen);
     window.clearTimeout(this.bootHideTimer);

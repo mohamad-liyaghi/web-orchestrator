@@ -330,3 +330,18 @@
     display: none;
   }
 }
+
+@media (max-height: 500px) {
+  .metrics {
+    padding: 2px 4px;
+  }
+
+  .m-label {
+    font-size: 0.54rem;
+  }
+
+  .meter,
+  .beats {
+    display: none;
+  }
+}

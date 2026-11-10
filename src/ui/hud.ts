@@ -113,6 +113,7 @@ export class HudRenderer {
   private lowPower = false;
   private degraded = false;
   private slowFor = 0;
+  private warmup = 0;
   private fastFor = 0;
   private lastNow = 0;
   private readonly slots: [Slot, Slot] = [makeSlot(), makeSlot()];
@@ -284,9 +285,14 @@ export class HudRenderer {
 
   private trackPerf(dt: number): void {
     const st = this.stats;
+    // Ignore the first seconds: page load, font loading and model warm-up make frames slow.
+    if (this.warmup < 3000) {
+      this.warmup += dt;
+      return;
+    }
     st.frameMs += (dt - st.frameMs) * 0.05;
-    // Degrade when frames get slow (< ~38 fps) or our own drawing gets heavy; recover slowly.
-    if (st.frameMs > 26 || st.drawMs > 5) {
+    // Degrade when frames stay slow (< ~36 fps for 2.5 s) or our own drawing gets heavy; recover slowly.
+    if (st.frameMs > 28 || st.drawMs > 5) {
       this.slowFor += dt;
       this.fastFor = 0;
     } else if (st.frameMs < 19 && st.drawMs < 2.5) {
@@ -295,11 +301,11 @@ export class HudRenderer {
     } else {
       this.slowFor = Math.max(0, this.slowFor - dt);
     }
-    if (!this.degraded && this.slowFor > 1500) {
+    if (!this.degraded && this.slowFor > 2500) {
       this.degraded = true;
       st.degraded = true;
       this.applyDpr();
-    } else if (this.degraded && this.fastFor > 10000) {
+    } else if (this.degraded && this.fastFor > 8000) {
       this.degraded = false;
       st.degraded = false;
       this.fastFor = 0;
@@ -961,7 +967,7 @@ export class HudRenderer {
     // Mouth meter beside the face box with the gate threshold tick.
     if (mouthMode) {
       const mh = Math.max(40, h * 0.42);
-      const mx = x + w + 10;
+      const mx = x + w + 10 + 60 > this.w ? x - 15 : x + w + 10;
       const my = y + h - mh;
       ctx.globalAlpha = a * 0.6;
       ctx.fillStyle = 'rgba(200,215,255,0.16)';
@@ -979,14 +985,16 @@ export class HudRenderer {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.globalAlpha = a * 0.7;
-      ctx.fillText('MOUTH', mx + 11, my + mh - 4);
+      const left = mx < x;
+      ctx.textAlign = left ? 'right' : 'left';
+      ctx.fillText('MOUTH', left ? mx - 6 : mx + 11, my + mh - 4);
     }
     if (playing) {
       const label = 'PLAYING';
       ctx.font = FONT_TAG;
       const tw = 64;
       const cx = x + w / 2 - tw / 2;
-      const cy = y - 26;
+      const cy = Math.max(64, y - 26); // stay clear of the top bar
       ctx.globalAlpha = a;
       ctx.fillStyle = leadColor;
       roundRect(ctx, cx, cy, tw, 18, 9);

@@ -341,6 +341,12 @@
   scrollbar-width: none;
 }
 
+.tabs {
+  -webkit-mask: linear-gradient(90deg, #000 calc(100% - 20px), transparent);
+  mask: linear-gradient(90deg, #000 calc(100% - 20px), transparent);
+  padding-right: 16px;
+}
+
 .tabs::-webkit-scrollbar {
   display: none;
 }
@@ -1225,5 +1231,31 @@ kbd {
 
   .pill {
     padding-left: 10px;
+  }
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Landscape phones: every pixel of height counts. */
+@media (max-height: 500px) {
+  .dock {
+    padding: 6px;
+  }
+
+  .dock-handle {
+    display: none;
+  }
+
+  .pill {
+    height: 40px;
+  }
+
+  .dock-row > .seg-mode .seg-btn,
+  .stepper .step-btn,
+  .dock-more {
+    min-height: 40px;
+    height: 40px;
   }
 }
