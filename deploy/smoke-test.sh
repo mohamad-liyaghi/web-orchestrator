@@ -60,8 +60,10 @@ expect "missing file is a real 404" "$(status "$h")" '^404$'
 expect "404 is not cached" "$(header "$h" cache-control)" '^no-store$'
 expect "404 keeps security headers" "$(header "$h" x-content-type-options)" '^nosniff$'
 expect "dotfiles hidden" "$(status "$(headers "$HTTPS/.env")")" '^404$'
-expect "POST rejected" "$(status "$(headers "$HTTPS/" -X POST)")" '^(403|405)$'
-expect "TRACE rejected" "$(status "$(headers "$HTTPS/" -X TRACE)")" '^405$'
+expect "POST rejected" "$(status "$(headers "$HTTPS/" -X POST)")" '^405$'
+h=$(headers "$HTTPS/" -X TRACE)
+expect "TRACE rejected" "$(status "$h")" '^405$'
+expect "nginx error pages keep the CSP" "$(header "$h" content-security-policy)$(header "$h" content-security-policy-report-only)" "default-src 'self'"
 
 echo "Hashed bundle"
 js=$("${CURL[@]}" "$HTTPS/" | grep -oE 'assets/[^"]+\.js' | head -1)
