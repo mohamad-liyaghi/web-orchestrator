@@ -110,10 +110,10 @@ export class BootPanel {
       row.done = row.done || p.done;
       row.active = !row.done;
     }
-    this.render(p);
+    this.render();
   }
 
-  private render(p: LoadProgress): void {
+  private render(): void {
     let loaded = 0;
     let total = 0;
     let downloadsDone = true;
@@ -169,7 +169,7 @@ export class BootPanel {
       const cached = this.firstByteAt > 0 && now - this.firstByteAt < 600;
       this.summary.set(cached ? 'Loaded from cache · warming up the vision engine' : 'Downloaded · warming up the vision engine');
     } else {
-      this.summary.set(p.label || 'Almost there');
+      this.summary.set('All set · opening the stage');
     }
     this.hint.hidden = !waitingForCamera;
   }
