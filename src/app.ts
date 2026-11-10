@@ -140,10 +140,17 @@ export class App {
       modelsReady.catch(() => undefined); // awaited below; avoid an unhandled rejection meanwhile
 
       stage.setBootProgress({ stage: 'camera', label: 'Waiting for camera permission', loaded: 0, total: 0, done: false });
-      this.stream = MOCK ? null : await openCamera(stage.video);
+      const stream = MOCK ? null : await openCamera(stage.video);
+      if (this.stage !== stage) {
+        // The user left (or the page was hidden) while the permission prompt was open.
+        closeCamera(stream);
+        return;
+      }
+      this.stream = stream;
       this.stream?.getVideoTracks()[0]?.addEventListener('ended', this.onCameraEnded);
       stage.setBootProgress({ stage: 'audio', label: 'Starting audio', loaded: 0, total: 0, done: false });
       await audioReady;
+      if (this.stage !== stage) return; // left while audio was starting; teardown closed the camera
       this.engine.configure(this.settings);
 
       // Camera is live: reveal the stage while the models finish loading.
@@ -243,10 +250,13 @@ export class App {
     const w = stage.viewport.clientWidth;
     const h = stage.viewport.clientHeight;
     if (!vw || !vh || !w || !h) return;
-    const key = `${vw}x${vh}@${w}x${h}`;
+    const insetTop = Math.round(stage.hudInsets?.().top ?? 0);
+    const key = `${vw}x${vh}@${w}x${h}+${insetTop}`;
     if (key === this.zoneKey) return;
     this.zoneKey = key;
-    this.engine.setPlayZone(playZoneFor(coverMap(vw, vh, w, h)));
+    // Keep the top lane clear of the top bar (matters on short landscape phones).
+    const topInset = Math.max(0.1, (insetTop + 12) / h);
+    this.engine.setPlayZone(playZoneFor(coverMap(vw, vh, w, h), Math.min(topInset, 0.35)));
   }
 
   // -------------------------------------------------------------------------------------------
@@ -324,7 +334,9 @@ export class App {
   };
 
   private readonly onPageHide = (): void => {
-    // Release the camera when the page is hidden for good (or enters the bfcache).
+    // Release the camera when the page is hidden for good (or enters the bfcache). A take in
+    // progress is dropped rather than leaking into the next session.
+    if (this.engine.isRecording) void this.engine.stopRecording().catch(() => undefined);
     if (!this.stage) return;
     this.teardown();
     this.showLanding();
