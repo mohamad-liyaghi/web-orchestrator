@@ -151,6 +151,8 @@ const MAX_RINGING = 24;
 const DECAY_S = 3;
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** Velocity variation applies to struck / plucked notes; sustained ones follow the expression. */
+const velocityHumanize = (tech: Technique): number => (tech.sustained || tech.fixedVelocity ? 0 : tech.humanize);
 
 /**
  * Sounds one chord at a time on a player, the way the instrument is played: a block, a strum
@@ -402,7 +404,7 @@ export class ChordPart {
 
   private block(t: number, seed: number): void {
     const tech = this.ctx!.tech;
-    const h = tech.fixedVelocity ? 0 : tech.humanize;
+    const h = velocityHumanize(tech);
     // One time for the whole chord (no flam), a little velocity life per note.
     this.notes.forEach((m, i) => this.startNote(m, t, velocityJitter(seed, i, h)));
   }
@@ -410,7 +412,7 @@ export class ChordPart {
   private roll(t: number, seed: number): void {
     const tech = this.ctx!.tech;
     const gap = tech.rollGap * (1 + (hash01(seed, 3) - 0.5) * 0.3 * tech.humanize);
-    this.notes.forEach((m, i) => this.startNote(m, t + i * gap, (1 - i * 0.02) * velocityJitter(seed, i, tech.humanize)));
+    this.notes.forEach((m, i) => this.startNote(m, t + i * gap, (1 - i * 0.02) * velocityJitter(seed, i, velocityHumanize(tech))));
   }
 
   /**
@@ -422,7 +424,7 @@ export class ChordPart {
     const notes = this.notes;
     const n = notes.length;
     if (!n) return;
-    const h = tech.humanize;
+    const h = velocityHumanize(tech);
     const stringy = tech.idiom === 'guitar' || tech.idiom === 'power' || tech.idiom === 'lute' || tech.strike === 'strum';
     let gap = (0.03 - 0.022 * clamp01(this.velocity)) * (stringy ? 1 : 0.45);
     gap *= 1 + (hash01(seed, 9) - 0.5) * 0.3 * h;
@@ -481,7 +483,7 @@ export class ChordPart {
       this.end(player, this.arpLast, time, player.spec.sustained ? 0.05 : 0.45);
       this.sounding.delete(this.arpLast.midi);
     }
-    const h = ctx.tech.fixedVelocity ? 0 : ctx.tech.humanize;
+    const h = velocityHumanize(ctx.tech);
     // A gentle accent on the first note of each cycle.
     const accent = k % n === 0 ? 1 : 0.9;
     this.arpLast = this.startNote(midi, time, accent * velocityJitter(seed, idx, h));
@@ -530,7 +532,7 @@ export class ChordPart {
       this.end(player, this.bassNote, at, player.spec.sustained ? 0.04 : 0.06);
       this.sounding.delete(this.bassNote.midi);
     }
-    const h = ctx.tech.fixedVelocity ? 0 : ctx.tech.humanize;
+    const h = velocityHumanize(ctx.tech);
     // Beat one a little stronger, like a bass player leaning on the downbeat.
     const note = this.startNote(midi, at, (inBar === 0 ? 1 : 0.86) * velocityJitter(seed, 0, h));
     if (dur < Infinity) this.damp(note, at + dur, 0.05);
