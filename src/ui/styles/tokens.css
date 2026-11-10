@@ -1,0 +1,73 @@
+/* Design tokens: colour, type, spacing, motion. Everything else reads from these. */
+:root {
+  --bg: #05060a;
+  --bg-1: #080a12;
+  --bg-2: #0c0f1a;
+  --ink: #eef1ff;
+  --ink-2: rgba(226, 232, 255, 0.72);
+  --ink-3: rgba(208, 216, 255, 0.5);
+  --ink-4: rgba(200, 210, 255, 0.32);
+
+  --cyan: #3cf2ff;
+  --violet: #8b5cf6;
+  --magenta: #ff3dcb;
+  --lime: #b6ff5c;
+  --amber: #ffb547;
+  --danger: #ff5577;
+  --aurora: linear-gradient(100deg, var(--cyan) 0%, var(--violet) 52%, var(--magenta) 100%);
+  --aurora-soft: linear-gradient(100deg, rgba(60, 242, 255, 0.18), rgba(139, 92, 246, 0.18) 52%, rgba(255, 61, 203, 0.18));
+
+  --glass: rgba(14, 17, 30, 0.58);
+  --glass-strong: rgba(12, 14, 26, 0.82);
+  --glass-hi: rgba(255, 255, 255, 0.045);
+  --hair: rgba(190, 205, 255, 0.12);
+  --hair-2: rgba(190, 205, 255, 0.2);
+  --hair-grad: linear-gradient(135deg, rgba(60, 242, 255, 0.45), rgba(139, 92, 246, 0.18) 40%, rgba(255, 255, 255, 0.06) 60%, rgba(255, 61, 203, 0.35));
+  --blur: blur(18px) saturate(140%);
+
+  --font-ui: 'Space Grotesk Variable', 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 72px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 140ms;
+  --t-med: 260ms;
+  --t-slow: 520ms;
+
+  --tap: 44px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+
+  --z-stage: 10;
+  --z-hud: 20;
+  --z-chrome: 30;
+  --z-sheet: 40;
+  --z-overlay: 50;
+  --z-landing: 60;
+  --z-toast: 70;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 1ms;
+    --t-med: 1ms;
+    --t-slow: 1ms;
+  }
+}
