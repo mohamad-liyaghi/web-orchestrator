@@ -306,6 +306,21 @@ interface SynthSlot {
   last: number;
   /** The preset's own portamento. */
   portamento: number;
+  /** The voice was silent when its current note was scheduled (nothing to fade out). */
+  fresh: boolean;
+}
+
+/** The parts of a Tone voice the cancel path touches (envelopes and oscillators). */
+interface VoicePart {
+  cancel?: (after: number) => unknown;
+  stop?: (time: number) => unknown;
+  _state?: { getValueAtTime(time: number): string | undefined };
+}
+
+/** True when the voice's oscillator is not running at `time` (its last note has fully ended). */
+function oscillatorSilentAt(osc: VoicePart | undefined, time: number, fallback: boolean): boolean {
+  const state = osc?._state?.getValueAtTime(time);
+  return state === undefined ? fallback : state !== 'started';
 }
 
 export class SynthPlayer implements Player {
@@ -335,10 +350,12 @@ export class SynthPlayer implements Player {
     if (this.disposed || !this.spec.synth) return -1;
     time = Math.max(time, this.output.context.currentTime);
     const slot = this.pickSlot(time);
+    const fresh = !slot.held && slot.freeAt <= time;
     // A stolen voice may already hold a strum/arpeggio note scheduled slightly ahead.
     const at = Math.max(time, slot.last + 0.002);
     const v = Math.max(0.05, Math.min(1, velocity));
     slot.handle = ++handleSeq;
+    slot.fresh = fresh;
     slot.held = true;
     slot.t0 = at;
     slot.last = at;
@@ -385,15 +402,23 @@ export class SynthPlayer implements Player {
       this.releaseSlot(slot, time);
       return;
     }
-    // Not started yet: drop the scheduled attack, then release from whatever the voice holds.
+    // Not started yet: drop the scheduled attack.
     slot.held = false;
     this.tap?.cancel(this, slot.handle, slot.t0);
-    const v = slot.voice as unknown as Record<string, { cancel?: (after: number) => unknown } | undefined>;
+    const v = slot.voice as unknown as Record<string, VoicePart | undefined>;
     try {
       for (const k of ['envelope', 'filterEnvelope', 'modulationEnvelope']) v[k]?.cancel?.(time);
-      slot.voice.triggerRelease(time);
+      if (oscillatorSilentAt(v.oscillator, time, slot.fresh)) {
+        // The voice was silent: stopping its oscillators now also removes their scheduled start
+        // (a later note on this voice must not land before it), without a sound.
+        for (const k of ['oscillator', '_modulator']) v[k]?.stop?.(time);
+        slot.freeAt = time;
+      } else {
+        // It still rings from an earlier note: let that tail fade out.
+        slot.voice.triggerRelease(time);
+        slot.freeAt = time + this.spec.release * 1.5 + 0.05;
+      }
       slot.last = time;
-      slot.freeAt = time + this.spec.release * 1.5 + 0.05;
     } catch {
       // Fall back to an ordinary release right after the attack.
       const at = Math.max(slot.t0 + 0.005, slot.last + 0.002);
@@ -435,7 +460,7 @@ export class SynthPlayer implements Player {
   private addSlot(): SynthSlot {
     const voice = createSynthVoice(this.spec.synth!);
     voice.connect(this.output);
-    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0, last: 0, portamento: voice.portamento };
+    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0, last: 0, portamento: voice.portamento, fresh: true };
     this.slots.push(slot);
     return slot;
   }
