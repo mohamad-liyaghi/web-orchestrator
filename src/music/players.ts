@@ -16,11 +16,25 @@ import type { SampleSet } from './samples';
 import { createSynthVoice, type MonoVoice } from './synths';
 import { midiToFreq } from './theory';
 
+/**
+ * Observer of a player's notes (looper recording, MIDI out). `off` fires once per note, whatever
+ * ends it: a release, a voice steal, stopAll or dispose.
+ */
+export interface NoteTap {
+  on(player: Player, handle: number, midi: number, velocity: number, time: number): void;
+  /** A held note changed pitch without a new attack (synth legato). */
+  glide(player: Player, handle: number, midi: number, time: number): void;
+  off(player: Player, handle: number, time: number): void;
+}
+
 export interface Player {
   readonly spec: InstrumentSpec;
   readonly output: Gain;
-  /** Starts a note; returns a handle (or -1 when the note cannot play). */
-  start(midi: number, velocity: number, time: number): number;
+  /** Note observer, null for none. */
+  tap: NoteTap | null;
+  /** Starts a note; returns a handle (or -1 when the note cannot play). `gain` scales its level
+   *  (loop playback reproduces the loudness the live channel had). */
+  start(midi: number, velocity: number, time: number, gain?: number): number;
   /** Legato pitch change of a held note. False when the player cannot glide (samples). */
   glide(handle: number, midi: number, time: number): boolean;
   /** Releases a note (release defaults to the instrument's own). */
@@ -54,12 +68,15 @@ interface SampleNote {
   releaseAt: number;
   tau: number;
   ended: boolean;
+  /** The tap has been told this note ended. */
+  tapOff: boolean;
 }
 
 let handleSeq = 0;
 
 export class SamplePlayer implements Player {
   readonly output: Gain;
+  tap: NoteTap | null = null;
   private notes: SampleNote[] = [];
   private disposed = false;
 
@@ -76,7 +93,7 @@ export class SamplePlayer implements Player {
     return this.notes.length;
   }
 
-  start(midi: number, velocity: number, time: number): number {
+  start(midi: number, velocity: number, time: number, gain = 1): number {
     if (this.disposed) return -1;
     const m = Math.max(0, Math.min(127, Math.round(midi)));
     const zone = this.set.nearest[m];
@@ -94,7 +111,7 @@ export class SamplePlayer implements Player {
     }
     const env = this.ctx.createGain();
     const v = Math.max(0, Math.min(1, velocity));
-    const level = this.spec.sustained ? 1 : 0.06 + 0.94 * Math.pow(v, 1.5);
+    const level = (this.spec.sustained ? 1 : 0.06 + 0.94 * Math.pow(v, 1.5)) * Math.max(0, Math.min(1, gain));
     const attack = this.spec.sustained ? 0.012 : 0.0025;
     env.gain.setValueAtTime(0, time);
     env.gain.linearRampToValueAtTime(level, time + attack);
@@ -110,10 +127,12 @@ export class SamplePlayer implements Player {
       releaseAt: Infinity,
       tau: 0,
       ended: false,
+      tapOff: false,
     };
     src.onended = () => this.cleanup(note);
     src.start(time, zone.offset);
     this.notes.push(note);
+    this.tap?.on(this, note.handle, m, v, time);
     return note.handle;
   }
 
@@ -133,7 +152,9 @@ export class SamplePlayer implements Player {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    const now = this.ctx.currentTime;
     for (const n of this.notes.slice()) {
+      this.tapOff(n, now);
       try {
         n.src.stop();
       } catch {
@@ -152,8 +173,15 @@ export class SamplePlayer implements Player {
     return n.level * Math.max(0, Math.min(1, k));
   }
 
+  private tapOff(n: SampleNote, time: number): void {
+    if (n.tapOff) return;
+    n.tapOff = true;
+    this.tap?.off(this, n.handle, time);
+  }
+
   private release(n: SampleNote, time: number, release: number): void {
     if (n.ended) return;
+    this.tapOff(n, time);
     const r = Math.max(0.01, release);
     // Already releasing at least this fast: nothing to do.
     if (n.releaseAt <= time && n.tau <= r / 5) return;
@@ -202,6 +230,7 @@ export class SamplePlayer implements Player {
 
   private cleanup(n: SampleNote): void {
     if (n.ended) return;
+    this.tapOff(n, this.ctx.currentTime);
     n.ended = true;
     n.src.onended = null;
     n.src.disconnect();
@@ -228,6 +257,7 @@ interface SynthSlot {
 
 export class SynthPlayer implements Player {
   readonly output: Gain;
+  tap: NoteTap | null = null;
   private readonly slots: SynthSlot[] = [];
   private disposed = false;
 
@@ -247,12 +277,13 @@ export class SynthPlayer implements Player {
     return n;
   }
 
-  start(midi: number, velocity: number, time: number): number {
+  start(midi: number, velocity: number, time: number, gain = 1): number {
     if (this.disposed || !this.spec.synth) return -1;
     time = Math.max(time, this.output.context.currentTime);
     const slot = this.pickSlot(time);
     // A stolen voice may already hold a strum/arpeggio note scheduled slightly ahead.
     const at = Math.max(time, slot.last + 0.002);
+    const v = Math.max(0.05, Math.min(1, velocity));
     slot.handle = ++handleSeq;
     slot.held = true;
     slot.t0 = at;
@@ -262,13 +293,14 @@ export class SynthPlayer implements Player {
       // A fresh attack must not glide in from the voice's previous pitch.
       slot.voice.frequency.cancelScheduledValues(at);
       slot.voice.frequency.setValueAtTime(midiToFreq(midi), at);
-      slot.voice.triggerAttack(midiToFreq(midi), at, Math.max(0.05, Math.min(1, velocity)));
+      slot.voice.triggerAttack(midiToFreq(midi), at, v * Math.max(0.02, Math.min(1, gain)));
     } catch (e) {
       slot.held = false;
       slot.freeAt = 0;
       console.warn('[music] synth note skipped:', e instanceof Error ? e.message : e);
       return -1;
     }
+    this.tap?.on(this, slot.handle, midi, v, at);
     return slot.handle;
   }
 
@@ -276,6 +308,7 @@ export class SynthPlayer implements Player {
     const slot = this.slots.find((s) => s.handle === handle && s.held);
     if (!slot) return false;
     slot.voice.setNote(midiToFreq(midi), Math.max(time, slot.last));
+    this.tap?.glide(this, handle, midi, time);
     return true;
   }
 
@@ -291,13 +324,18 @@ export class SynthPlayer implements Player {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const s of this.slots) s.voice.dispose();
+    const now = this.output.context.currentTime;
+    for (const s of this.slots) {
+      if (s.held) this.tap?.off(this, s.handle, now);
+      s.voice.dispose();
+    }
     this.slots.length = 0;
     this.output.dispose();
   }
 
   private releaseSlot(s: SynthSlot, time: number): void {
     s.held = false;
+    this.tap?.off(this, s.handle, time);
     const at = Math.max(time, s.t0 + 0.005, s.last + 0.002);
     s.last = at;
     s.voice.triggerRelease(at);
@@ -319,6 +357,7 @@ export class SynthPlayer implements Player {
     // Steal: prefer a releasing voice, else the oldest held one.
     for (const s of this.slots) if (!s.held && (!best || s.freeAt < best.freeAt)) best = s;
     if (!best) for (const s of this.slots) if (!best || s.t0 < best.t0) best = s;
+    if (best!.held) this.tap?.off(this, best!.handle, time);
     best!.held = false;
     return best!;
   }
