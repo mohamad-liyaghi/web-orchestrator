@@ -9,4 +9,5 @@ public/samples/
 .DS_Store
 .env
 .env.*
+!.env.example
 deploy/certs/

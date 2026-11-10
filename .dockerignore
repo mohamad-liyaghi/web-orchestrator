@@ -7,3 +7,6 @@ public/samples
 .github
 *.log
 deploy/certs
+.env
+.env.*
+!.env.example
