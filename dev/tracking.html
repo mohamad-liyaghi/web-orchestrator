@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Tracking harness</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; background: #05060a; color: #d8e1ff; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      #stage { position: fixed; inset: 0; overflow: hidden; }
+      video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+      canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #panel { position: fixed; top: 8px; left: 8px; max-width: min(460px, calc(100vw - 16px)); padding: 8px 10px; background: rgba(5, 6, 10, 0.72); border: 1px solid #23305a; border-radius: 6px; white-space: pre-wrap; }
+      #controls { position: fixed; bottom: 8px; left: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+      button, label { background: #111a33; color: inherit; border: 1px solid #2e3f74; border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+      #error { color: #ff7a8a; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <video id="video" muted playsinline autoplay></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div id="panel">Press Start (or add ?auto to the URL).</div>
+    <div id="controls">
+      <button id="start" type="button">Start</button>
+      <button id="stop" type="button">Stop</button>
+      <label><input id="lowpower" type="checkbox" /> low power</label>
+    </div>
+    <script type="module" src="./tracking.ts"></script>
+  </body>
+</html>
