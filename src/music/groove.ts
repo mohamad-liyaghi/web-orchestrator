@@ -132,7 +132,7 @@ export class Groove {
     private readonly chord: () => GrooveChord,
     destination: InputNode,
   ) {
-    this.pad = this.makePad(8);
+    this.pad = this.makePad(12);
     this.kick.connect(this.output);
     this.snare.chain(this.snareFilter, this.output);
     this.hat.chain(this.hatFilter, this.output);
@@ -168,7 +168,7 @@ export class Groove {
     const old = this.pad;
     old.releaseAll(this.ctx.currentTime);
     window.setTimeout(() => old.dispose(), 1500);
-    this.pad = this.makePad(on ? 4 : 8);
+    this.pad = this.makePad(on ? 6 : 12);
   }
 
   /** Fade in. The engine starts the Transport. */
@@ -210,7 +210,7 @@ export class Groove {
   private makePad(voices: number): PolySynth<Synth> {
     const pad = new PolySynth(Synth, {
       oscillator: { type: 'fattriangle', count: 2, spread: 14 },
-      envelope: { attack: 0.35, decay: 0.4, sustain: 0.7, release: 1.1 },
+      envelope: { attack: 0.35, decay: 0.4, sustain: 0.7, release: 0.8 },
       volume: -17,
     });
     pad.maxPolyphony = voices;
@@ -244,7 +244,7 @@ export class Groove {
     if (s === 0 || key !== this.lastPadKey) {
       this.lastPadKey = key;
       const notes = c.intervals
-        .slice(0, this.lowPower ? 2 : 4)
+        .slice(0, this.lowPower ? 2 : 3)
         .map((i) => midiToFreq(48 + c.root + i + (c.root + i > 7 ? -12 : 0)));
       this.pad.releaseAll(time);
       this.pad.triggerAttackRelease(notes, sixteenth * (16 - s) * 0.98, time, 0.45);
