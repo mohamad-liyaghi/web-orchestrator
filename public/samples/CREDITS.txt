@@ -1,0 +1,12 @@
+Instrument samples
+==================
+
+The sampled instruments in this folder are rendered from the FluidR3_GM General MIDI SoundFont
+by Frank Wen and contributors, licensed under the Creative Commons Attribution 3.0 license
+(https://creativecommons.org/licenses/by/3.0/).
+
+Per-note renders by Benjamin Gleitzman's midi-js-soundfonts project
+(https://github.com/gleitz/midi-js-soundfonts).
+
+Modifications: leading silence trimmed, notes shortened and faded or looped, loudness
+normalized, re-encoded to 64 kbps mono MP3 (scripts/build-samples.mjs).

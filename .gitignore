@@ -1,9 +1,8 @@
 node_modules/
 dist/
-# Downloaded/copied at build time by scripts/fetch-assets.mjs
+# Downloaded/copied at build time by scripts/fetch-assets.mjs (public/samples/ is committed)
 public/models/
 public/mediapipe/
-public/samples/
 .vite/
 *.log
 .DS_Store

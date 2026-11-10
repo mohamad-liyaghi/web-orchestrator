@@ -2,7 +2,6 @@ node_modules
 dist
 public/models
 public/mediapipe
-public/samples
 .git
 .github
 *.log
