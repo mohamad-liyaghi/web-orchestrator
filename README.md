@@ -2,15 +2,17 @@
 
 **Play a whole orchestra with your hands and your mouth.**
 
-<!-- LIVE-DEMO: replace this line with the GitHub Pages link once it is published -->
-**Live demo: coming soon**
+**▶ Live demo: [mohamad-liyaghi.ir/web-orchestrator](https://mohamad-liyaghi.ir/web-orchestrator/)** ·
+**💻 Run it locally: [three commands](#run-it-locally)** ·
+**🐳 Self-host: [Docker](#deployment-with-docker)**
 
-Open the page, press **Start** and raise a hand. Your index fingertip picks the note: higher hand,
-higher note. Open your mouth to play it. The wider you open it, the louder it gets, the way a
-breath controller works. Bring in your second hand to shape the volume like a theremin, play a bass
-line or strum chords under the melody. More than 50 sampled and synthesized instruments, a live
-heads-up display that tracks every finger, and a musician's metrics strip that shows what you are
-playing as you play it.
+Open the page, press **Start** and raise your hands. In the default **Chords** mode your left
+hand's fingers pick the chord (1 to 5 fingers for I to V, index + pinky for vi, add the thumb for
+vii°) and your right hand shapes it: higher is louder, its fingers choose triad, 7th, add9, sus4 or
+an open voicing, and a wrist tilt darkens the tone. Switch to **Melody** and your fingertip height
+picks single notes while your open mouth plays them, like a breath controller. More than 50 sampled
+and synthesized instruments, a live heads-up display that tracks every finger, and a musician's
+metrics strip that shows what you are playing as you play it.
 
 Everything runs in your browser. Hand and face tracking (MediaPipe) and the audio engine (Tone.js)
 run on your device. No video, image or sound ever leaves it, and there is no account, no backend
@@ -24,7 +26,7 @@ and no analytics.
 - [How to play](#how-to-play)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
-- [Local development](#local-development)
+- [Local development](#local-development) ([run it locally](#run-it-locally))
 - [Building](#building)
 - [Deploy to GitHub Pages](#deploy-to-github-pages)
 - [Deployment with Docker](#deployment-with-docker)
@@ -198,7 +200,20 @@ for the selfie view, so every module agrees on what "left" and "top" mean.
 
 ## Local development
 
-Requirements: Node.js 22 and npm.
+### Run it locally
+
+Requirements: [Node.js 22](https://nodejs.org/) and npm, a webcam, and Chrome, Edge, Firefox or Safari.
+
+```bash
+git clone https://github.com/mohamad-liyaghi/web-orchestrator.git
+cd web-orchestrator
+npm ci && npm run dev
+```
+
+Then open **<http://localhost:5173>**, press **Start playing** and allow the camera. The first run
+downloads the vision models (about 23 MB) into `public/`; later runs reuse them.
+
+### Development details
 
 ```bash
 npm ci
