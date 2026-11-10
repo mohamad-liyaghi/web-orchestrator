@@ -66,7 +66,8 @@ export class LearnController {
     return this.song;
   }
 
-  start(song: Song, mode: LearnMode, t: number): void {
+  /** Starts a song; tempo mode counts one bar in first unless `countIn` is off. */
+  start(song: Song, mode: LearnMode, t: number, countIn = true): void {
     const n = song.notes.length;
     this.song = song;
     this.hit = new Uint8Array(n);
@@ -89,8 +90,9 @@ export class LearnController {
     this.prevMidi = -1;
     this.windowIx = 0;
     this.lastT = t;
-    // Tempo mode: one bar of count-in before the first note.
-    this.clock0 = t + (mode === 'tempo' ? song.beatsPerBar * msPerBeat : 0);
+    // Tempo mode: one bar of count-in before the first note (none when the count-in is off).
+    const lead = mode === 'tempo' && countIn ? song.beatsPerBar * msPerBeat : 0;
+    this.clock0 = t + lead;
     this.st = {
       songId: song.id,
       title: song.title,
@@ -113,7 +115,7 @@ export class LearnController {
       startedT: t,
       finishedT: 0,
       msPerBeat,
-      songMs: mode === 'tempo' ? -song.beatsPerBar * msPerBeat : 0,
+      songMs: -lead,
       targetStartMs: 0,
       onLanes: true,
     };

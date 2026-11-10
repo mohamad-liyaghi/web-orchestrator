@@ -81,6 +81,8 @@ export function learnPatch(song: Song, instrumentIds: readonly string[]): Partia
     octave: lanes.octave,
     span: lanes.span,
     tempo: Math.max(60, Math.min(160, song.bpm)),
+    // The beat, bar:beat readouts and loops follow the song's meter.
+    timeSignature: song.beatsPerBar === 3 ? '3/4' : '4/4',
   };
   if (instrumentIds.includes(song.lead)) patch.lead = song.lead;
   return patch;

@@ -36,12 +36,16 @@ export class LearnSession {
     }));
   }
 
-  /** Starts (or restarts) a song. Returns the settings patch to apply, null for an unknown id. */
-  start(songId: string, mode: LearnMode = 'wait'): Partial<Settings> | null {
+  /**
+   * Starts (or restarts) a song. Returns the settings patch to apply (lanes, tempo and the song's
+   * time signature), null for an unknown id. `countIn` false starts tempo mode without the bar of
+   * count-in (Settings.countIn).
+   */
+  start(songId: string, mode: LearnMode = 'wait', countIn = true): Partial<Settings> | null {
     const song = findSong(songId);
     if (!song) return null;
     saveLearnMode(mode);
-    this.ctl.start(song, mode, performance.now());
+    this.ctl.start(song, mode, performance.now(), countIn);
     return learnPatch(song, this.instrumentIds);
   }
 
