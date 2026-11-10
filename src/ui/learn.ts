@@ -68,7 +68,7 @@ export class LearnPane {
     stop.append(icon('stop'), h('span', { text: 'Stop' }));
     stop.addEventListener('click', () => deps.onStop());
     this.stopRow = h('div', { class: 'lp-now', hidden: true }, h('span', { class: 'lp-now-label', text: 'Learning' }), this.stopTitle.el, stop);
-    this.list = h('div', { class: 'lp-list', role: 'list', 'aria-label': 'Songs' });
+    this.list = h('ul', { class: 'lp-list', 'aria-label': 'Songs' });
     this.el = h(
       'div',
       { class: 'learn-pane' },
@@ -94,7 +94,7 @@ export class LearnPane {
     this.rows.clear();
     this.list.replaceChildren();
     for (const s of list) {
-      const btn = h('button', { type: 'button', class: 'lp-song', role: 'listitem', 'data-id': s.id });
+      const btn = h('button', { type: 'button', class: 'lp-song', 'data-id': s.id });
       const meta = `${s.credit} · ${s.keyName} · ${s.length} notes`;
       btn.append(
         h('span', { class: 'lp-play', 'aria-hidden': 'true' }),
@@ -106,7 +106,7 @@ export class LearnPane {
       btn.setAttribute('aria-label', `${s.title}, ${DIFFICULTY[s.difficulty]}${best}. Play`);
       btn.addEventListener('click', () => this.deps.onPick(s.id, this.mode));
       this.rows.set(s.id, btn);
-      this.list.append(btn);
+      this.list.append(h('li', null, btn));
     }
     this.paintActive();
   }
@@ -329,6 +329,7 @@ export class LearnOverlay {
     this.title.set(st.title);
     this.modeTag.set(st.mode === 'tempo' ? 'Tempo' : 'Wait');
     setClass(this.panel, 'is-tempo', st.mode === 'tempo');
+    setClass(this.panel, 'is-done', false);
     this.card.hidden = true;
     this.panel.hidden = false;
   }
@@ -409,6 +410,7 @@ export class LearnOverlay {
     this.cardBest.hidden = !st.newBest;
     this.count.set(`${st.total} / ${st.total}`);
     this.fill.style.transform = 'scaleX(1)';
+    setClass(this.panel, 'is-done', true);
     this.card.hidden = false;
     this.nextBtn.focus({ preventScroll: true });
   }
