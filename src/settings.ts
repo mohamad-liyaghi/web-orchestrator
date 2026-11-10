@@ -1,4 +1,26 @@
-import type { ActionGesture, BeatStyle, ChordPlay, GestureAction, LeftHandRole, LoopBars, PlayMode, ScaleId, Settings, TriggerMode } from './types';
+import type {
+  ActionGesture,
+  ArpPattern,
+  BassPattern,
+  BeatStyle,
+  ChordPlay,
+  GestureAction,
+  Harmony,
+  LeftHandRole,
+  LoopBars,
+  NoteRate,
+  PlayMode,
+  PlayStyle,
+  ReverbType,
+  ScaleId,
+  Settings,
+  StrumPattern,
+  SustainPedal,
+  TimeSignature,
+  TriggerMode,
+  VelocityCurve,
+  Voicing,
+} from './types';
 import { clamp } from './geometry';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,6 +45,37 @@ export const DEFAULT_SETTINGS: Settings = {
   skeleton: true,
   lanes: true,
   lowPower: false,
+  playStyle: 'auto',
+  strumPattern: 'down-up',
+  arpPattern: 'up',
+  arpRate: '1/8',
+  arpOctaves: 1,
+  bassPattern: 'root',
+  voicing: 'close',
+  harmony: 'off',
+  sustainPedal: 'auto',
+  palmMute: false,
+  glide: 0.15,
+  humanize: 0.2,
+  tuning: 440,
+  transpose: 0,
+  timeSignature: '4/4',
+  swing: 0,
+  countIn: true,
+  clickVolume: 0.6,
+  velocityCurve: 'linear',
+  attack: 0,
+  release: 0.5,
+  reverbType: 'hall',
+  delay: 0,
+  delayTime: '1/8d',
+  delayFeedback: 0.3,
+  chorus: 0,
+  eqLow: 0,
+  eqMid: 0,
+  eqHigh: 0,
+  compressor: 0.4,
+  width: 0.5,
   gesturesEnabled: true,
   gestures: {
     fist: 'mute',
@@ -73,6 +126,17 @@ const LEFT_HAND: readonly LeftHandRole[] = ['volume', 'bass', 'chords', 'off'];
 const MODES: readonly PlayMode[] = ['melody', 'chords'];
 const CHORD_PLAY: readonly ChordPlay[] = ['block', 'strum', 'arp'];
 const BEATS: readonly BeatStyle[] = ['pop', 'lofi', 'rock', 'house', 'metronome'];
+export const PLAY_STYLES: readonly PlayStyle[] = ['auto', 'manual'];
+export const STRUM_PATTERNS: readonly StrumPattern[] = ['single', 'down-up', 'folk', 'pop', 'reggae', 'ballad'];
+export const ARP_PATTERNS: readonly ArpPattern[] = ['up', 'down', 'up-down', 'random', 'broken', 'alberti'];
+export const NOTE_RATES: readonly NoteRate[] = ['1/4', '1/8', '1/8t', '1/8d', '1/16', '1/16t'];
+export const BASS_PATTERNS: readonly BassPattern[] = ['root', 'root-fifth', 'octave', 'walking', 'off'];
+export const VOICINGS: readonly Voicing[] = ['close', 'open', 'drop2', 'spread', 'guitar'];
+export const HARMONIES: readonly Harmony[] = ['off', 'third-above', 'sixth-below', 'fifth-above', 'octave'];
+export const SUSTAIN_PEDALS: readonly SustainPedal[] = ['off', 'auto', 'hold'];
+export const VELOCITY_CURVES: readonly VelocityCurve[] = ['soft', 'linear', 'hard', 'fixed'];
+export const REVERB_TYPES: readonly ReverbType[] = ['room', 'hall', 'plate', 'cathedral'];
+export const TIME_SIGNATURES: readonly TimeSignature[] = ['4/4', '3/4', '6/8', '5/4', '7/8'];
 const pick = <T extends string>(v: unknown, list: readonly T[], fallback: T): T =>
   list.includes(v as T) ? (v as T) : fallback;
 
@@ -107,6 +171,37 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
     skeleton: bool(r.skeleton, d.skeleton),
     lanes: bool(r.lanes, d.lanes),
     lowPower: bool(r.lowPower, d.lowPower),
+    playStyle: pick(r.playStyle, PLAY_STYLES, d.playStyle),
+    strumPattern: pick(r.strumPattern, STRUM_PATTERNS, d.strumPattern),
+    arpPattern: pick(r.arpPattern, ARP_PATTERNS, d.arpPattern),
+    arpRate: pick(r.arpRate, NOTE_RATES, d.arpRate),
+    arpOctaves: Math.round(num(r.arpOctaves, d.arpOctaves, 1, 3)),
+    bassPattern: pick(r.bassPattern, BASS_PATTERNS, d.bassPattern),
+    voicing: pick(r.voicing, VOICINGS, d.voicing),
+    harmony: pick(r.harmony, HARMONIES, d.harmony),
+    sustainPedal: pick(r.sustainPedal, SUSTAIN_PEDALS, d.sustainPedal),
+    palmMute: bool(r.palmMute, d.palmMute),
+    glide: num(r.glide, d.glide, 0, 1),
+    humanize: num(r.humanize, d.humanize, 0, 1),
+    tuning: Math.round(num(r.tuning, d.tuning, 415, 466)),
+    transpose: Math.round(num(r.transpose, d.transpose, -12, 12)),
+    timeSignature: pick(r.timeSignature, TIME_SIGNATURES, d.timeSignature),
+    swing: num(r.swing, d.swing, 0, 0.6),
+    countIn: bool(r.countIn, d.countIn),
+    clickVolume: num(r.clickVolume, d.clickVolume, 0, 1),
+    velocityCurve: pick(r.velocityCurve, VELOCITY_CURVES, d.velocityCurve),
+    attack: num(r.attack, d.attack, 0, 1),
+    release: num(r.release, d.release, 0, 1),
+    reverbType: pick(r.reverbType, REVERB_TYPES, d.reverbType),
+    delay: num(r.delay, d.delay, 0, 1),
+    delayTime: pick(r.delayTime, NOTE_RATES, d.delayTime),
+    delayFeedback: num(r.delayFeedback, d.delayFeedback, 0, 0.9),
+    chorus: num(r.chorus, d.chorus, 0, 1),
+    eqLow: num(r.eqLow, d.eqLow, -12, 12),
+    eqMid: num(r.eqMid, d.eqMid, -12, 12),
+    eqHigh: num(r.eqHigh, d.eqHigh, -12, 12),
+    compressor: num(r.compressor, d.compressor, 0, 1),
+    width: num(r.width, d.width, 0, 1),
     gesturesEnabled: bool(r.gesturesEnabled, d.gesturesEnabled),
     gestures: sanitizeGestures(r.gestures),
     loopBars: LOOP_BARS.includes(r.loopBars as LoopBars) ? (r.loopBars as LoopBars) : d.loopBars,

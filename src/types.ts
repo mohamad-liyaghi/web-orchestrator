@@ -267,6 +267,41 @@ export type ChordPlay = 'block' | 'strum' | 'arp';
 /** Backing beat pattern. */
 export type BeatStyle = 'pop' | 'lofi' | 'rock' | 'house' | 'metronome';
 
+/**
+ * Playing technique. 'auto' makes every instrument family play idiomatically: guitars strum real
+ * six-string chord shapes string by string (down strums low to high, up strums on the top strings),
+ * keys use the sustain pedal, strings/winds/voices play legato with a little glide, basses walk
+ * their patterns, mallets roll. 'manual' applies the technique settings below exactly as set.
+ */
+export type PlayStyle = 'auto' | 'manual';
+
+/** Strum rhythm for chords played with chordPlay 'strum' (repeats in time while the chord is held). */
+export type StrumPattern = 'single' | 'down-up' | 'folk' | 'pop' | 'reggae' | 'ballad';
+
+/** Arpeggiator note order for chordPlay 'arp'. */
+export type ArpPattern = 'up' | 'down' | 'up-down' | 'random' | 'broken' | 'alberti';
+
+/** Musical note length used by the arpeggiator and the delay. 't' = triplet, 'd' = dotted. */
+export type NoteRate = '1/4' | '1/8' | '1/8t' | '1/8d' | '1/16' | '1/16t';
+
+/** What the bass voice plays under chords. */
+export type BassPattern = 'root' | 'root-fifth' | 'octave' | 'walking' | 'off';
+
+/** Chord voicing: close position, open, drop-2, wide spread, or real guitar chord shapes. */
+export type Voicing = 'close' | 'open' | 'drop2' | 'spread' | 'guitar';
+
+/** Automatic diatonic harmony added to melody notes. */
+export type Harmony = 'off' | 'third-above' | 'sixth-below' | 'fifth-above' | 'octave';
+
+export type SustainPedal = 'off' | 'auto' | 'hold';
+
+/** How mouth / hand expression maps to note velocity. */
+export type VelocityCurve = 'soft' | 'linear' | 'hard' | 'fixed';
+
+export type ReverbType = 'room' | 'hall' | 'plate' | 'cathedral';
+
+export type TimeSignature = '4/4' | '3/4' | '6/8' | '5/4' | '7/8';
+
 /** What opens the "gate" (makes sound): mouth open, thumb-index pinch, or any visible hand. */
 export type TriggerMode = 'mouth' | 'pinch' | 'always';
 
@@ -329,6 +364,55 @@ export interface Settings {
   lanes: boolean;
   /** Low-power mode for weak devices: fewer tracking frames, no particles, lower canvas resolution. */
   lowPower: boolean;
+  // ---- Playing technique (musicians) ------------------------------------------------------
+  playStyle: PlayStyle;
+  strumPattern: StrumPattern;
+  arpPattern: ArpPattern;
+  arpRate: NoteRate;
+  /** Octaves the arpeggio spans, 1..3. */
+  arpOctaves: number;
+  bassPattern: BassPattern;
+  voicing: Voicing;
+  harmony: Harmony;
+  sustainPedal: SustainPedal;
+  /** Guitar palm mute: short, damped strums. */
+  palmMute: boolean;
+  /** Portamento between legato notes, 0..1. */
+  glide: number;
+  /** Human feel: small timing and velocity variations, 0..1. */
+  humanize: number;
+  // ---- Studio (musicians) ------------------------------------------------------------------
+  /** Concert pitch: frequency of A4 in Hz, 415..466 (440 standard, 432 alternative). */
+  tuning: number;
+  /** Transpose everything that sounds, in semitones, -12..12 (lanes keep the written names). */
+  transpose: number;
+  timeSignature: TimeSignature;
+  /** Swing on off-beat 8ths / 16ths of the beat, arpeggiator and looper, 0..0.6. */
+  swing: number;
+  /** Count-in clicks before looper takes and tempo-mode songs. */
+  countIn: boolean;
+  /** Metronome / count-in click volume 0..1. */
+  clickVolume: number;
+  velocityCurve: VelocityCurve;
+  /** Attack time scale 0..1 (0 = instrument default, 1 = slow swell). */
+  attack: number;
+  /** Release time scale 0..1 (0.5 = instrument default). */
+  release: number;
+  reverbType: ReverbType;
+  /** Tempo-synced delay: wet 0..1, time, feedback 0..0.9. */
+  delay: number;
+  delayTime: NoteRate;
+  delayFeedback: number;
+  /** Chorus depth 0..1. */
+  chorus: number;
+  /** 3-band EQ in dB, -12..12. */
+  eqLow: number;
+  eqMid: number;
+  eqHigh: number;
+  /** Bus compression amount 0..1. */
+  compressor: number;
+  /** Stereo width 0..1 (0 mono, 0.5 natural, 1 wide). */
+  width: number;
   /** Master switch for gesture actions. */
   gesturesEnabled: boolean;
   /** Action bound to each gesture. Left-hand gestures are ignored in 'chords' mode (finger counts pick chords). */
