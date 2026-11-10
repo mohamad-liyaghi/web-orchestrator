@@ -1,7 +1,10 @@
-import type { ActionGesture, GestureAction, LeftHandRole, ScaleId, Settings, TriggerMode } from './types';
+import type { ActionGesture, BeatStyle, ChordPlay, GestureAction, LeftHandRole, PlayMode, ScaleId, Settings, TriggerMode } from './types';
 import { clamp } from './geometry';
 
 export const DEFAULT_SETTINGS: Settings = {
+  mode: 'melody',
+  chordPlay: 'strum',
+  tiltControls: true,
   lead: 'grand-piano',
   bass: 'electric-bass',
   leftHand: 'volume',
@@ -12,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trigger: 'mouth',
   sensitivity: 0.5,
   groove: false,
+  beat: 'pop',
   tempo: 96,
   reverb: 0.35,
   volume: 0.8,
@@ -57,6 +61,11 @@ const SCALES: readonly ScaleId[] = [
 ];
 const TRIGGERS: readonly TriggerMode[] = ['mouth', 'pinch', 'always'];
 const LEFT_HAND: readonly LeftHandRole[] = ['volume', 'bass', 'chords', 'off'];
+const MODES: readonly PlayMode[] = ['melody', 'chords'];
+const CHORD_PLAY: readonly ChordPlay[] = ['block', 'strum', 'arp'];
+const BEATS: readonly BeatStyle[] = ['pop', 'lofi', 'rock', 'house', 'metronome'];
+const pick = <T extends string>(v: unknown, list: readonly T[], fallback: T): T =>
+  list.includes(v as T) ? (v as T) : fallback;
 
 const num = (v: unknown, fallback: number, lo: number, hi: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : fallback;
@@ -69,6 +78,9 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
   const inst = (v: unknown, fallback: string): string =>
     typeof v === 'string' && instrumentIds.includes(v) ? v : fallback;
   return {
+    mode: pick(r.mode, MODES, d.mode),
+    chordPlay: pick(r.chordPlay, CHORD_PLAY, d.chordPlay),
+    tiltControls: bool(r.tiltControls, d.tiltControls),
     lead: inst(r.lead, d.lead),
     bass: inst(r.bass, d.bass),
     leftHand: LEFT_HAND.includes(r.leftHand as LeftHandRole) ? (r.leftHand as LeftHandRole) : d.leftHand,
@@ -79,6 +91,7 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
     trigger: TRIGGERS.includes(r.trigger as TriggerMode) ? (r.trigger as TriggerMode) : d.trigger,
     sensitivity: num(r.sensitivity, d.sensitivity, 0, 1),
     groove: bool(r.groove, d.groove),
+    beat: pick(r.beat, BEATS, d.beat),
     tempo: Math.round(num(r.tempo, d.tempo, 60, 160)),
     reverb: num(r.reverb, d.reverb, 0, 1),
     volume: num(r.volume, d.volume, 0, 1),
@@ -128,6 +141,8 @@ export function mouthThresholds(sensitivity: number): [open: number, close: numb
 // ---------------------------------------------------------------------------------------------
 
 const SHARE_KEYS: readonly (keyof Settings)[] = [
+  'mode',
+  'chordPlay',
   'lead',
   'bass',
   'leftHand',
@@ -137,6 +152,7 @@ const SHARE_KEYS: readonly (keyof Settings)[] = [
   'span',
   'trigger',
   'groove',
+  'beat',
   'tempo',
   'reverb',
 ];

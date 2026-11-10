@@ -91,6 +91,13 @@ export interface HandState {
   pinching: boolean;
   /** Number of extended fingers, 0..5. */
   fingersUp: number;
+  /** Which fingers are extended [thumb, index, middle, ring, pinky], debounced like `gesture`. */
+  fingers: [boolean, boolean, boolean, boolean, boolean];
+  /** Wrist roll in radians as seen on screen: 0 = fingers pointing up, positive = tilted clockwise
+   *  (toward the right of the screen), smoothed. */
+  roll: number;
+  /** Thumb stretched out sideways, away from the palm (not just "extended"). */
+  thumbOut: boolean;
   /** Debounced pose: fist (0 fingers), open (5), point (index), peace (index+middle),
    *  thumbs-up (only the thumb, pointing up), rock (index+pinky), none otherwise. */
   gesture: HandGesture;
@@ -241,6 +248,22 @@ export interface ScaleDef {
   intervals: number[];
 }
 
+/**
+ * melody: the right hand's height picks single notes on the lanes (default).
+ * chords: gesture chord player. The LEFT hand's finger pattern picks the scale degree
+ *   (1 finger I, 2 ii, 3 iii, 4 IV, 5 V, index+pinky vi, thumb+index+pinky vii); left wrist tilt
+ *   swaps major/minor (when tiltControls). The RIGHT hand's height = volume, finger count = chord
+ *   style (1 triad, 2 seventh, 3 add9, 4 sus4, 5 big open voicing), wrist tilt = filter, thumb out =
+ *   octave down, fist = mute. One hand only: it picks the degree.
+ */
+export type PlayMode = 'melody' | 'chords';
+
+/** How chords are played: all at once, strummed low to high, or arpeggiated in time with the tempo. */
+export type ChordPlay = 'block' | 'strum' | 'arp';
+
+/** Backing beat pattern. */
+export type BeatStyle = 'pop' | 'lofi' | 'rock' | 'house' | 'metronome';
+
 /** What opens the "gate" (makes sound): mouth open, thumb-index pinch, or any visible hand. */
 export type TriggerMode = 'mouth' | 'pinch' | 'always';
 
@@ -265,7 +288,12 @@ export type GestureAction =
   | 'toggle-record';
 
 export interface Settings {
-  /** InstrumentDef id played by the lead voice (right hand / only hand). */
+  mode: PlayMode;
+  /** How chords sound (chords mode and the left-hand 'chords' role). */
+  chordPlay: ChordPlay;
+  /** Wrist tilt controls (major/minor swap on the left hand, filter on the right) in chords mode. */
+  tiltControls: boolean;
+  /** InstrumentDef id played by the lead voice (right hand / only hand; the chords in chords mode). */
   lead: string;
   /** InstrumentDef id for the left hand's voice (leftHand = 'bass' or 'chords'). */
   bass: string;
@@ -283,6 +311,8 @@ export interface Settings {
   sensitivity: number;
   /** Backing beat on/off. */
   groove: boolean;
+  /** Backing beat pattern. */
+  beat: BeatStyle;
   /** Beat tempo in BPM, 60..160. */
   tempo: number;
   /** Reverb wet amount 0..1. */
@@ -353,7 +383,7 @@ export interface InstrumentLoadState {
 export interface Recording {
   blob: Blob;
   mimeType: string;
-  /** Suggested file extension without the dot, e.g. "webm", "m4a". */
+  /** Suggested file extension without the dot: "wav" when the take could be converted, else "webm" / "m4a" / "ogg". */
   extension: string;
   durationMs: number;
 }
@@ -368,6 +398,14 @@ export interface MusicMetrics {
   chord: string;
   /** Roman numeral of that chord in the key, e.g. "vi", "" when not diatonic / unknown. */
   roman: string;
+  /** Chord degree 1..7 selected by a hand (chords mode / left-hand chords role), 0 when none. */
+  degree: number;
+  /** Chord style picked by the right hand in chords mode, e.g. "Triad", "7th", "" otherwise. */
+  chordStyle: string;
+  /** True when the left wrist tilt swapped the chord's major/minor quality. */
+  borrowed: boolean;
+  /** The 7 diatonic chords of the current key for the degree guide, e.g. ["C","Dm","Em","F","G","Am","Bdim"]. */
+  diatonic: string[];
   /** MIDI notes (integers) sounding right now, lead and bass, ascending. */
   activeMidi: number[];
   /** Overall expression 0..1 actually applied (mouth openness x hand volume). */
