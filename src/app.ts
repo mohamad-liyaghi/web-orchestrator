@@ -435,7 +435,7 @@ export class App {
       this.learn.stop();
       return;
     }
-    const patch = this.learn.start(songId, mode);
+    const patch = this.learn.start(songId, mode, this.settings.countIn);
     if (patch) this.applySettings(patch);
   }
 
