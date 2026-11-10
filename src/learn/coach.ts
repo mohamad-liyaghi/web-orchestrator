@@ -12,10 +12,13 @@ import type { Song } from './songs';
  *
  * wait mode: the song waits on each note until it is hit.
  * tempo mode: after a one-bar count-in the notes move on at the song tempo; a note may be played
- * up to EARLY_MS before its time and until the next note starts; a note never hit is a miss.
+ * up to EARLY_MS before its time and until the next note starts (or reached early and held into
+ * its time); a note never hit is a miss.
  */
 
 const GRACE_MS = 140;
+/** Wrong notes right after (re)starting a song are not counted: the hand is still getting there. */
+const START_GRACE_MS = 800;
 const EARLY_MS = 160;
 /** Frames stopping this long (hidden tab, stalled camera) pause the tempo clock. */
 const PAUSE_GAP_MS = 400;
@@ -149,6 +152,7 @@ export class LearnController {
       const onset = lead.gate && m >= 0 && (lead.onset || m !== this.prevMidi);
       this.prevMidi = lead.gate ? m : -1;
       if (onset) this.judgeOnset(m, t);
+      else if (st.mode === 'tempo' && lead.gate && m >= 0) this.judgeHeld(m, t);
       if (this.pendingMidi >= 0) {
         if (!lead.gate) this.commitMiss(t);
         else if (m !== this.pendingMidi) this.pendingMidi = -1; // moved on; a new onset judges it
@@ -186,6 +190,19 @@ export class LearnController {
     }
     this.pendingMidi = m;
     this.pendingT = t;
+  }
+
+  /**
+   * Tempo mode legato: a note reached early (gate open, before its window) and held into its window
+   * counts as played. A repeated pitch still needs a fresh onset.
+   */
+  private judgeHeld(m: number, t: number): void {
+    const j = this.judgeIndex();
+    if (j < 0) return;
+    const notes = this.song!.notes;
+    if (m !== notes[j]!.midi + this.shift || (j > 0 && notes[j - 1]!.midi === notes[j]!.midi)) return;
+    this.pendingMidi = -1;
+    this.hitNote(j, t);
   }
 
   /** Note an onset is judged against, -1 when none is due. */
@@ -226,6 +243,7 @@ export class LearnController {
 
   private commitMiss(t: number): void {
     this.pendingMidi = -1;
+    if (t - this.st!.startedT < START_GRACE_MS) return;
     const j = this.judgeIndex();
     if (j < 0) return;
     this.missNote(j, t);

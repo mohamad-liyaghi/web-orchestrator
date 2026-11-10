@@ -7,7 +7,7 @@
  *
  * Per song: every note is in the song's scale and on a lane of its lane setup; a perfect run in
  * wait mode (tongued and legato) and in tempo mode scores 100 % and finishes; one held wrong note
- * is exactly one miss; a silent tempo run misses every note; the song still lands when the
+ * is exactly one miss (and one in the first moments is forgiven); a silent tempo run misses every note; the song still lands when the
  * engine moves the lanes by an octave. Also checks the best-score store. Exits 1 on failure.
  */
 import { SONGS } from '../src/learn/songs.ts';
@@ -111,7 +111,7 @@ function waitOneWrong(song, lanes, at) {
   return { st: ctl.state, finished: p.finished };
 }
 
-function tempoRun(song, lanes, play) {
+function tempoRun(song, lanes, play, legato = false) {
   const ctl = new LearnController();
   const t0 = 1000;
   ctl.start(song, 'tempo', t0);
@@ -133,7 +133,15 @@ function tempoRun(song, lanes, play) {
     // Index of the note sounding at time t (the mouth closes for the last frame of each note).
     const k = times.findIndex(([s, e]) => p.t >= s && p.t < e);
     if (k < 0) p.frame(song.notes[0].midi, false);
-    else p.frame(song.notes[k].midi, p.t < times[k][1] - FRAME * 1.5);
+    else if (legato) {
+      // Glide to the next pitch up to 250 ms early (in the second half of the note) with the gate
+      // open; only repeated notes re-articulate.
+      const next = song.notes[k + 1];
+      const [s0, e0] = times[k];
+      const early = next && p.t >= Math.max(e0 - 250, (s0 + e0) / 2) && next.midi !== song.notes[k].midi;
+      const rearticulate = next && next.midi === song.notes[k].midi && p.t >= times[k][1] - FRAME * 1.5;
+      p.frame(early ? next.midi : song.notes[k].midi, !rearticulate);
+    } else p.frame(song.notes[k].midi, p.t < times[k][1] - FRAME * 1.5);
   }
   return { st: ctl.state, finished: p.finished };
 }
@@ -158,14 +166,21 @@ for (const song of SONGS) {
   expect(r.finished && r.st.hits === n && r.st.misses === 0, `wait legato: hits ${r.st.hits} misses ${r.st.misses}`);
   console.log(`  wait legato    hits ${r.st.hits}/${n} misses ${r.st.misses} accuracy ${(r.st.accuracy * 100).toFixed(0)}%`);
 
-  r = waitOneWrong(song, lanes, Math.min(2, n - 1));
+  r = waitOneWrong(song, lanes, Math.min(5, n - 1)); // past the start grace
   expect(r.finished && r.st.hits === n && r.st.misses === 1, `one wrong: hits ${r.st.hits} misses ${r.st.misses}`);
   expect(Math.abs(r.st.accuracy - (n - 1) / n) < 1e-9, `one wrong: accuracy ${r.st.accuracy}`);
   console.log(`  one wrong note hits ${r.st.hits}/${n} misses ${r.st.misses} accuracy ${(r.st.accuracy * 100).toFixed(1)}%`);
 
+  r = waitOneWrong(song, lanes, 0);
+  expect(r.st.misses === 0, `wrong note during the start grace counted: misses ${r.st.misses}`);
+
   r = tempoRun(song, lanes, true);
   expect(r.finished && r.st.hits === n && r.st.misses === 0 && r.st.accuracy === 1, `tempo perfect: hits ${r.st.hits} misses ${r.st.misses}`);
   console.log(`  tempo perfect  hits ${r.st.hits}/${n} misses ${r.st.misses} accuracy ${(r.st.accuracy * 100).toFixed(0)}%`);
+
+  r = tempoRun(song, lanes, true, true);
+  expect(r.finished && r.st.hits === n && r.st.misses === 0, `tempo legato: hits ${r.st.hits} misses ${r.st.misses}`);
+  console.log(`  tempo legato   hits ${r.st.hits}/${n} misses ${r.st.misses} accuracy ${(r.st.accuracy * 100).toFixed(0)}%`);
 
   r = tempoRun(song, lanes, false);
   expect(r.finished && r.st.hits === 0 && r.st.misses === n && r.st.stars === 0, `tempo silent: hits ${r.st.hits} misses ${r.st.misses}`);
