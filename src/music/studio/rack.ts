@@ -65,6 +65,12 @@ const FADE = 0.04;
 /** Parameter smoothing time constant (s). */
 const TAU = 0.03;
 const MAX_DELAY = 2;
+/** Delay line crossfade on a time change (s). */
+const SWAP = 0.08;
+/** Lookahead of a DynamicsCompressorNode (fixed 6 ms in every engine). */
+const COMP_LOOKAHEAD = 0.006;
+/** A node reconnected after a pause still holds old audio for a few ms: let it flush first. */
+const FLUSH = 0.015;
 
 const db = (v: number): number => Math.pow(10, v / 20);
 
@@ -155,8 +161,14 @@ class Insert {
         this.wet.gain.value = 1;
         this.dry.gain.value = 0;
       } else {
-        fade(this.wet.gain, 1, t);
-        fade(this.dry.gain, 0, t);
+        // Hold the crossfade until a just-reconnected effect has flushed what it held.
+        const at = t + FLUSH;
+        this.wet.gain.cancelScheduledValues(t);
+        this.wet.gain.setValueAtTime(this.wet.gain.value, at);
+        this.wet.gain.linearRampToValueAtTime(1, at + FADE);
+        this.dry.gain.cancelScheduledValues(t);
+        this.dry.gain.setValueAtTime(this.dry.gain.value, at);
+        this.dry.gain.linearRampToValueAtTime(0, at + FADE);
       }
     } else {
       fade(this.wet.gain, 0, t);
@@ -337,9 +349,12 @@ class Echo {
   private amount = 0;
   private seconds = 0.375;
   private feedback = 0.3;
+  /** Audio time the last line swap's crossfade ends; a new time waits for it. */
+  private swapEnd = 0;
+  private swapPending = false;
 
   constructor(
-    ctx: RackContext,
+    private readonly ctx: RackContext,
     private readonly host: RackHost,
     private readonly input: AudioNode,
     private readonly output: AudioNode,
@@ -379,18 +394,9 @@ class Echo {
     seconds = Math.max(0.02, Math.min(MAX_DELAY - 0.01, seconds));
     if (Math.abs(seconds - this.seconds) > 1e-6) {
       this.seconds = seconds;
-      if (this.wired && was > 0) {
-        // Swap lines: the silent one already holds the input history, so its first echo is right.
-        const old = this.lines[this.current]!;
-        this.current = 1 - this.current;
-        const next = this.lines[this.current]!;
-        next.delay.delayTime.cancelScheduledValues(t);
-        next.delay.delayTime.setValueAtTime(seconds, t);
-        fade(next.fb.gain, this.feedback, t, 0.08);
-        fade(next.out.gain, 1, t, 0.08);
-        fade(old.fb.gain, 0, t, 0.08);
-        fade(old.out.gain, 0, t, 0.08);
-      } else {
+      // Connected (playing or still ringing out): crossfade lines. Otherwise jump.
+      if (this.wired) this.swap(t);
+      else {
         for (const l of this.lines) {
           l.delay.delayTime.cancelScheduledValues(t);
           l.delay.delayTime.setValueAtTime(seconds, t);
@@ -420,6 +426,30 @@ class Echo {
         this.unwire();
       });
     }
+  }
+
+  /** Crossfades to the silent line at the current delay time (after any crossfade under way). */
+  private swap(t: number): void {
+    if (t < this.swapEnd) {
+      if (this.swapPending) return;
+      this.swapPending = true;
+      this.host.later((this.swapEnd - t) * 1000 + 5, () => {
+        this.swapPending = false;
+        if (this.wired && this.lines[this.current]!.delay.delayTime.value !== this.seconds) this.swap(this.ctx.currentTime);
+      });
+      return;
+    }
+    // The silent line already holds the input history, so its first echo is right at once.
+    const old = this.lines[this.current]!;
+    this.current = 1 - this.current;
+    const next = this.lines[this.current]!;
+    next.delay.delayTime.cancelScheduledValues(t);
+    next.delay.delayTime.setValueAtTime(this.seconds, t);
+    fade(next.fb.gain, this.feedback, t, SWAP);
+    fade(next.out.gain, 1, t, SWAP);
+    fade(old.fb.gain, 0, t, SWAP);
+    fade(old.out.gain, 0, t, SWAP);
+    this.swapEnd = t + SWAP + 0.01;
   }
 
   private unwire(): void {
@@ -602,6 +632,115 @@ class Reverb {
 // Dynamics and image
 // ---------------------------------------------------------------------------------------------
 
+interface CompBranch {
+  comp: DynamicsCompressorNode;
+  out: GainNode;
+  level: number;
+  wired: boolean;
+  gen: number;
+}
+
+/**
+ * Bus compression whose amount never moves a compressor parameter (a compressor recomputes its
+ * gain curve once per render quantum, so moving threshold or ratio zippers). Instead the amount
+ * blends three fixed paths: dry (delayed by the compressor's lookahead so blends never comb),
+ * the original bus compressor (-16 dB, 3:1: exactly the default 0.4) and a heavy one (-28 dB,
+ * 4:1) at 1. Paths at zero are disconnected.
+ */
+class Dynamics {
+  readonly input: GainNode;
+  readonly output: GainNode;
+  private readonly dry: GainNode;
+  private readonly dryDelay: DelayNode;
+  private readonly light: CompBranch;
+  private readonly heavy: CompBranch;
+
+  constructor(
+    ctx: RackContext,
+    private readonly host: RackHost,
+  ) {
+    this.input = gain(ctx, 1);
+    this.output = gain(ctx, 1);
+    this.dryDelay = ctx.createDelay(0.05);
+    this.dryDelay.delayTime.value = COMP_LOOKAHEAD;
+    this.dry = gain(ctx, 1);
+    this.input.connect(this.dryDelay);
+    this.dryDelay.connect(this.dry);
+    this.dry.connect(this.output);
+    const branch = (threshold: number, ratio: number, makeupDb: number): CompBranch => {
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = threshold;
+      comp.ratio.value = ratio;
+      comp.knee.value = 8;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.2;
+      const out = gain(ctx, 0);
+      const makeup = gain(ctx, db(makeupDb));
+      comp.connect(makeup);
+      makeup.connect(out);
+      return { comp, out, level: 0, wired: false, gen: 0 };
+    };
+    this.light = branch(-16, 3, 0);
+    // The browser adds automatic makeup gain; the trim keeps quiet passages from jumping up.
+    this.heavy = branch(-28, 4, -4);
+  }
+
+  /** Gain reduction of the compressor doing most of the work (dB, tests). */
+  get reduction(): number {
+    return this.heavy.level > this.light.level ? this.heavy.comp.reduction : this.light.comp.reduction;
+  }
+
+  get processing(): boolean {
+    return this.light.wired || this.heavy.wired;
+  }
+
+  set(amount: number, t: number, immediate: boolean): void {
+    const a = Math.max(0, Math.min(1, amount));
+    const base = 0.4;
+    const wHeavy = a > base ? (a - base) / (1 - base) : 0;
+    const wLight = a > base ? 1 - wHeavy : a / base;
+    const wDry = a > base ? 0 : 1 - a / base;
+    this.level(this.light, wLight, t, immediate);
+    this.level(this.heavy, wHeavy, t, immediate);
+    if (immediate) this.dry.gain.value = wDry;
+    else fade(this.dry.gain, wDry, t + FLUSH, FADE);
+  }
+
+  private level(b: CompBranch, w: number, t: number, immediate: boolean): void {
+    if (w === b.level && (w > 0) === b.wired) return;
+    const was = b.level;
+    b.level = w;
+    if (w > 0) {
+      b.gen++;
+      if (!b.wired) {
+        this.input.connect(b.comp);
+        b.out.connect(this.output);
+        b.wired = true;
+      }
+      if (immediate) b.out.gain.value = w;
+      else fade(b.out.gain, w, t + FLUSH, FADE);
+    } else if (was > 0) {
+      const gen = ++b.gen;
+      fade(b.out.gain, 0, t + FLUSH, FADE);
+      this.host.later((FLUSH + FADE) * 1000 * 3 + 40, () => {
+        if (gen !== b.gen || b.level > 0 || !b.wired) return;
+        safeDisconnect(this.input, b.comp);
+        safeDisconnect(b.out, this.output);
+        b.wired = false;
+      });
+    }
+  }
+
+  dispose(): void {
+    for (const b of [this.light, this.heavy]) {
+      b.gen++;
+      safeDisconnect(b.comp);
+      safeDisconnect(b.out);
+    }
+    for (const n of [this.input, this.output, this.dry, this.dryDelay]) safeDisconnect(n);
+  }
+}
+
 /** Mid/side width: L' = aL + bR, R' = aR + bL with a = (1+w)/2, b = (1-w)/2, w = 2 * width. */
 class Width {
   readonly in: GainNode;
@@ -686,9 +825,7 @@ export class StudioRack {
   private readonly echo: Echo;
   private readonly reverbOut: GainNode;
   private readonly reverb: Reverb;
-  private readonly comp: DynamicsCompressorNode;
-  private readonly makeup: GainNode;
-  private readonly compInsert: Insert;
+  private readonly dynamics: Dynamics;
   private readonly width: Width;
   private readonly limiter: DynamicsCompressorNode;
   private readonly clip: WaveShaperNode;
@@ -731,18 +868,11 @@ export class StudioRack {
     this.reverbOut.connect(this.sideSum);
     this.sideEq.insert.output.connect(this.sideSum);
 
-    // Bus compressor (+ makeup above the default amount).
-    this.comp = ctx.createDynamicsCompressor();
-    this.comp.knee.value = 8;
-    this.comp.attack.value = 0.004;
-    this.comp.release.value = 0.2;
-    this.makeup = gain(ctx, 1);
-    this.comp.connect(this.makeup);
-    this.compInsert = new Insert(ctx, host, this.comp, this.makeup);
-    this.sideSum.connect(this.compInsert.input);
+    this.dynamics = new Dynamics(ctx, host);
+    this.sideSum.connect(this.dynamics.input);
 
     this.width = new Width(ctx, host);
-    this.compInsert.output.connect(this.width.insert.input);
+    this.dynamics.output.connect(this.width.insert.input);
 
     // Limiter (the original: -1 dB, ratio 20, wide knee, fast) and a sample-exact safety ceiling.
     this.limiter = ctx.createDynamicsCompressor();
@@ -779,19 +909,7 @@ export class StudioRack {
     }
     if (changed('reverbType', 'lowPower')) this.reverb.setType(s.reverbType, lp, t, first);
     if (changed('reverb')) this.reverb.setAmount(s.reverb, t);
-    if (changed('compressor')) {
-      const c = Math.max(0, Math.min(1, s.compressor));
-      if (first) {
-        this.comp.threshold.value = -40 * c;
-        this.comp.ratio.value = 1 + 5 * c;
-        this.makeup.gain.value = db(Math.max(0, c - 0.4) * 8);
-      } else {
-        ramp(this.comp.threshold, -40 * c, t, 0.05);
-        ramp(this.comp.ratio, 1 + 5 * c, t, 0.05);
-        ramp(this.makeup.gain, db(Math.max(0, c - 0.4) * 8), t, 0.05);
-      }
-      this.compInsert.set(c > 0, t, first);
-    }
+    if (changed('compressor')) this.dynamics.set(s.compressor, t, first);
     if (changed('width', 'lowPower')) this.width.set(s.width, !lp, t);
     this.applied = { ...s };
   }
@@ -807,9 +925,9 @@ export class StudioRack {
       reverb: this.reverb.processing,
       reverbType: this.reverb.type,
       reverbSwitches: this.reverb.switches,
-      compressor: this.compInsert.processing,
+      compressor: this.dynamics.processing,
       width: this.width.insert.processing,
-      compReduction: Number(this.comp.reduction.toFixed(2)),
+      compReduction: Number(this.dynamics.reduction.toFixed(2)),
       limiterReduction: Number(this.limiter.reduction.toFixed(2)),
     };
   }
@@ -820,9 +938,9 @@ export class StudioRack {
     this.chorus.dispose();
     this.echo.dispose();
     this.reverb.dispose();
-    this.compInsert.dispose();
+    this.dynamics.dispose();
     this.width.dispose();
-    for (const n of [this.input, this.sideInput, this.output, this.chorusOut, this.chorusDry, this.delayOut, this.reverbOut, this.sideSum, this.comp, this.makeup, this.limiter, this.clip]) {
+    for (const n of [this.input, this.sideInput, this.output, this.chorusOut, this.chorusDry, this.delayOut, this.reverbOut, this.sideSum, this.limiter, this.clip]) {
       safeDisconnect(n);
     }
   }
