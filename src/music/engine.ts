@@ -2,9 +2,9 @@
  * The music engine: Tone.js audio graph + gesture -> note mapping.
  *
  *   lead/bass voice: player -> filter (brightness) -> vibrato -> gain (expression)
- *     -> instrument bus -> dry + reverb send + delay send -> compressor -> limiter
+ *     -> instrument bus -> studio rack (EQ, chorus, delay, reverb, compressor, width, limiter)
  *     -> master volume -> destination (+ analyser, + recorder tap)
- *   groove -> compressor (under the instruments)
+ *   groove -> the rack's side input (EQ + compressor, under the instruments) + reverb send
  *   looper tracks: own players -> loop bus -> instrument bus (so reverb, master and recorder get them)
  *   MIDI out mirrors the live voices (players' note taps)
  *
@@ -12,7 +12,7 @@
  * at import time, which browsers refuse (and warn about) before a user gesture. The context is
  * created in unlock(), inside the Start tap.
  */
-import { Compressor, Convolver, FeedbackDelay, Filter, Gain, Limiter, ToneAudioBuffer, Vibrato } from 'tone/build/esm/classes.js';
+import { Filter, Gain, Vibrato } from 'tone/build/esm/classes.js';
 import { Context } from 'tone/build/esm/core/context/Context.js';
 import { setContext } from 'tone/build/esm/core/Global.js';
 import './toneFixes';
@@ -47,6 +47,9 @@ import { ChordPart, STYLE_BY_FINGERS, STYLE_LABEL, chordVoicing, degreeChord, de
 import { MelodyPerformer, harmonyNote, resolveTechnique, soundingChord, voiceFor, type Technique } from './technique';
 import { MasterRecorder } from './recorder';
 import { MobileAudioUnlock } from './unlock';
+import { StudioRack } from './studio/rack';
+import { MeterClock, swingSteps } from './studio/meter';
+import { studioVoice } from './studio/voice';
 import {
   SCALES,
   bassNotes,
@@ -196,25 +199,6 @@ function makeVoiceState(voice: VoiceId, instrument: string): VoiceState {
   };
 }
 
-/** A decaying, slightly darkened noise stereo impulse response (no OfflineContext render). */
-function impulse(ctx: Context, seconds: number, decay: number): AudioBuffer {
-  const rate = ctx.sampleRate;
-  const len = Math.floor(rate * seconds);
-  const buf = ctx.createBuffer(2, len, rate);
-  const pre = Math.floor(rate * 0.012);
-  for (let c = 0; c < 2; c++) {
-    const d = buf.getChannelData(c);
-    let lp = 0;
-    for (let i = pre; i < len; i++) {
-      const t = (i - pre) / (len - pre);
-      // One-pole low-pass that closes over time: the tail gets warmer as it decays.
-      lp += (Math.random() * 2 - 1 - lp) * (0.6 - 0.45 * t);
-      d[i] = lp * Math.pow(1 - t, decay);
-    }
-  }
-  return buf;
-}
-
 class Engine implements MusicEngine {
   readonly instruments = INSTRUMENTS;
   readonly scales = SCALES;
@@ -237,14 +221,12 @@ class Engine implements MusicEngine {
   private readonly midi = new MidiOut();
   /** Dynamics target of the current frame (MIDI note-on velocity of sustained instruments). */
   private frameDyn = 0;
-  private reverbSend: Gain | null = null;
-  private reverb: Convolver | null = null;
-  private reverbLow = false;
-  private delaySend: Gain | null = null;
-  private delay: FeedbackDelay | null = null;
-  private delayTone: Filter | null = null;
-  private comp: Compressor | null = null;
-  private limiter: Limiter | null = null;
+  private rack: StudioRack | null = null;
+  /** Time signature of the grid (bars counted from a downbeat step). */
+  private readonly meterClock = new MeterClock();
+  private readonly pos = { bar: 0, beat: 0 };
+  /** Bar length (ticks) the looper's loops are made with; 0 before the graph exists. */
+  private loopBarTicks = 0;
   private master: Gain | null = null;
   private groove: Groove | null = null;
   private grooveSend: Gain | null = null;
@@ -438,7 +420,9 @@ class Engine implements MusicEngine {
       v.channel?.dispose();
       v.channel = null;
     }
-    for (const n of [this.bus, this.liveBus, this.loopBus, this.clickBus, this.reverbSend, this.reverb, this.delaySend, this.delay, this.delayTone, this.comp, this.limiter, this.master, this.grooveSend]) {
+    this.rack?.dispose();
+    this.rack = null;
+    for (const n of [this.bus, this.liveBus, this.loopBus, this.clickBus, this.master, this.grooveSend]) {
       n?.dispose();
     }
     this.analyser?.disconnect();
@@ -468,20 +452,33 @@ class Engine implements MusicEngine {
     this.lib = new SampleLibrary(ctx, ASSETS.samples, 6);
 
     this.master = new Gain(0).toDestination();
-    this.limiter = new Limiter(-1).connect(this.master);
-    this.comp = new Compressor({ threshold: -16, ratio: 3, attack: 0.004, release: 0.2, knee: 8 }).connect(this.limiter);
-    this.bus = new Gain(0.9).connect(this.comp);
+    this.rack = new StudioRack(
+      ctx,
+      {
+        later: (ms, fn) => {
+          this.later(ms, () => {
+            if (!this.disposed) fn();
+          });
+        },
+        slice: (fn) => {
+          this.later(0, () => {
+            if (!this.disposed) fn();
+          });
+        },
+      },
+      this.settings,
+    );
+    this.rack.output.connect(this.master.input);
+    this.bus = new Gain(0.9);
+    this.bus.connect(this.rack.input);
     this.liveBus = new Gain(1).connect(this.bus);
     this.loopBus = new Gain(1).connect(this.bus);
     this.clickBus = new Gain(0).toDestination();
-    this.reverbSend = new Gain(0.3);
-    this.bus.connect(this.reverbSend);
-    this.setReverb(this.settings.lowPower);
-    this.setDelay(!this.settings.lowPower);
+    this.loopBarTicks = (ctx.transport.PPQ / 4) * this.meterClock.meter.steps;
 
     this.grooveSend = new Gain(0.12);
-    this.grooveSend.connect(this.reverbSend);
-    this.groove = new Groove(ctx, () => this.currentGrooveChord(), this.comp);
+    this.grooveSend.connect(this.rack.reverbSend);
+    this.groove = new Groove(ctx, () => this.currentGrooveChord(), this.rack.sideInput);
     this.groove.output.connect(this.grooveSend);
     this.looperImpl = new Looper({
       ctx,
@@ -495,7 +492,10 @@ class Engine implements MusicEngine {
       clockChanged: () => this.syncClock(),
       clockRunning: () => this.clockId !== null,
       grooveRunning: () => !!this.groove?.isRunning,
-      swing: () => this.groove?.swing ?? 0,
+      gridOffset: (barStep) => this.swingAt(barStep, !!this.groove?.isRunning),
+      meter: () => this.meterClock.meter,
+      meterOrigin: () => this.meterClock.origin * (ctx.transport.PPQ / 4),
+      countIn: () => this.settings.countIn,
     });
 
     const analyser = ctx.createAnalyser();
@@ -518,37 +518,6 @@ class Engine implements MusicEngine {
   /** Voice channels hold a vibrato LFO, which must only start once the context runs. */
   private buildChannels(): void {
     for (const v of [this.lead, this.bass]) v.channel ??= new Channel(this.liveBus!);
-  }
-
-  private setReverb(lowPower: boolean): void {
-    if (this.reverb && this.reverbLow === lowPower) return;
-    this.reverbLow = lowPower;
-    const ctx = this.ctx!;
-    const old = this.reverb;
-    const ir = lowPower ? impulse(ctx, 1.3, 3.2) : impulse(ctx, 2.6, 2.6);
-    const conv = new Convolver({ url: new ToneAudioBuffer(ir), normalize: true });
-    this.reverbSend!.connect(conv);
-    conv.connect(this.comp!);
-    this.reverb = conv;
-    if (old) {
-      this.reverbSend!.disconnect(old);
-      this.later(3000, () => old.dispose());
-    }
-  }
-
-  private setDelay(on: boolean): void {
-    if (on && !this.delay) {
-      this.delaySend = new Gain(0.09);
-      this.delay = new FeedbackDelay({ delayTime: 0.32, feedback: 0.22, wet: 1, maxDelay: 1 });
-      this.delayTone = new Filter({ type: 'lowpass', frequency: 3200, rolloff: -12 });
-      this.bus!.connect(this.delaySend);
-      this.delaySend.chain(this.delay, this.delayTone, this.comp!);
-    } else if (!on && this.delay) {
-      const nodes = [this.delaySend!, this.delay, this.delayTone!];
-      this.bus!.disconnect(this.delaySend!);
-      this.delaySend = this.delay = this.delayTone = null;
-      this.later(2500, () => nodes.forEach((n) => n.dispose()));
-    }
   }
 
   private later(ms: number, fn: () => void): number {
@@ -585,6 +554,8 @@ class Engine implements MusicEngine {
       }
       if (this.clockId === null) {
         const at = ctx.currentTime + 0.05;
+        this.meterClock.restart();
+        this.meterApplied(0);
         t.position = 0;
         this.clockId = t.scheduleRepeat((time) => this.onClock(time), '16n', 0);
         t.start(at);
@@ -649,6 +620,25 @@ class Engine implements MusicEngine {
     return 15 / Math.max(1, this.ctx!.transport.bpm.value);
   }
 
+  /** The Transport's time signature follows the grid's meter (for anything reading Tone bars). */
+  private syncTimeSignature(): void {
+    const t = this.ctx?.transport;
+    if (!t) return;
+    const [n, d] = this.meterClock.meter.signature;
+    t.timeSignature = [n, d];
+  }
+
+  /**
+   * Swing of bar sixteenth `barStep`, in sixteenths: the user's swing (eighths; sixteenths for
+   * house and eighth-based meters), else the beat's own feel while it plays.
+   */
+  private swingAt(barStep: number, grooveRunning: boolean): number {
+    const g = this.groove;
+    if (grooveRunning && g) return g.offset(barStep, this.settings.swing);
+    const sw = this.settings.swing;
+    return sw > 0 ? swingSteps(barStep, sw, this.meterClock.meter.eighths) : 0;
+  }
+
   /** Transport callback for a sixteenth: schedule the NEXT one, ahead of time. */
   private onClock(time: number): void {
     if (this.disposed || !this.ctx) return;
@@ -659,8 +649,13 @@ class Engine implements MusicEngine {
 
   private onGrid(step: number, time: number): void {
     const sixteenth = this.sixteenth();
-    this.groove!.schedule(step, time, sixteenth);
+    const mc = this.meterClock;
+    if (mc.advance(step)) this.meterApplied(step);
+    const barStep = mc.barStep(step);
+    const groove = this.groove!;
+    groove.schedule(barStep, time, sixteenth, groove.offset(barStep, this.settings.swing));
     const s = this.settings;
+    // Technique parts get the straight grid and apply the swing setting themselves.
     if (s.mode === 'chords') {
       this.lead.part.onGrid(step, time, sixteenth);
       this.bass.part.onGrid(step, time, sixteenth);
@@ -668,6 +663,22 @@ class Engine implements MusicEngine {
       this.bass.part.onGrid(step, time, sixteenth);
     }
     this.looperImpl?.onGrid(step, time, sixteenth);
+  }
+
+  /** The grid's time signature is now in force from grid step `originStep` (a bar line). */
+  private meterApplied(originStep: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const meter = this.meterClock.meter;
+    const six = ctx.transport.PPQ / 4;
+    this.groove?.setMeter(meter);
+    this.syncTimeSignature();
+    const barTicks = six * meter.steps;
+    if (barTicks !== this.loopBarTicks) {
+      const old = this.loopBarTicks;
+      this.loopBarTicks = barTicks;
+      if (old > 0) this.looperImpl?.meterChanged(old, originStep * six);
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -700,10 +711,9 @@ class Engine implements MusicEngine {
     if (changed('lowPower')) {
       this.limits.sample = s.lowPower ? 6 : 10;
       this.limits.synth = s.lowPower ? 4 : 6;
-      this.setReverb(s.lowPower);
-      this.setDelay(!s.lowPower);
       this.groove!.setLowPower(s.lowPower);
     }
+    this.applyStudio(s, a, t);
     if (changed('mode') || changed('leftHand') || changed('chordPlay')) {
       for (const v of [this.lead, this.bass]) this.silenceVoice(v, t, 0.15);
       this.degree.reset();
@@ -723,10 +733,10 @@ class Engine implements MusicEngine {
       if (this.needBass(s)) this.setInstrument(this.bass, s.bass);
       else this.bass.state.instrument = s.bass;
     }
-    if (changed('reverb')) this.reverbSend!.gain.setTargetAtTime(s.reverb * 0.9, t, 0.05);
-    if (changed('volume')) {
+    if (changed('volume') || changed('clickVolume')) {
       this.master!.gain.setTargetAtTime(s.volume * s.volume, t, 0.03);
-      this.clickBus!.gain.setTargetAtTime(Math.max(0.15, s.volume * s.volume), t, 0.03);
+      this.clickBus!.gain.setTargetAtTime(Math.max(0.15, s.volume * s.volume) * this.clickLevel(s), t, 0.03);
+      this.groove!.setClickLevel(this.clickLevel(s));
     }
     if (changed('loopBars')) this.looperImpl!.setBars(s.loopBars);
     if (changed('midiOut') || changed('midiChannel')) this.midi.configure(s.midiOut, s.midiChannel);
@@ -740,6 +750,19 @@ class Engine implements MusicEngine {
     this.m.scaleName = scaleDef(s.scale).name;
     this.m.bpm = s.tempo;
     this.applied = { ...s, gestures: { ...s.gestures } };
+  }
+
+  /** Click level relative to the default click volume (0.6). */
+  private clickLevel(s: Settings): number {
+    return s.clickVolume / 0.6;
+  }
+
+  /** Studio settings: FX rack, concert pitch / transpose / envelopes, time signature. */
+  private applyStudio(s: Settings, a: Settings | null, t: number): void {
+    this.rack!.configure(s, t);
+    studioVoice.set(s.tuning, s.transpose, s.attack, s.release, s.velocityCurve, t);
+    // A running clock switches on its next bar line (onGrid); an idle one at once.
+    if ((!a || a.timeSignature !== s.timeSignature) && this.meterClock.request(s.timeSignature, this.clockId !== null)) this.meterApplied(0);
   }
 
   private refreshDiatonic(s: Settings): void {
@@ -877,12 +900,13 @@ class Engine implements MusicEngine {
         this.looperImpl?.noteOn(v.id, player.spec.id, handle, midi, velocity, gain, time);
         if (this.midi.active) {
           const expr = player.spec.sustained ? this.frameDyn * this.handVolume : velocity * this.handVolume;
-          this.midi.noteOn(handle, ch, midi, clamp01(Math.max(0.08, expr)), this.perfAt(time));
+          // MIDI out sends what sounds: the transposed note.
+          this.midi.noteOn(handle, ch, midi + studioVoice.transpose, clamp01(Math.max(0.08, expr)), this.perfAt(time));
         }
       },
       glide: (_player, handle, midi, time) => {
         this.looperImpl?.noteGlide(handle, midi, time);
-        if (this.midi.active) this.midi.glide(handle, midi, this.perfAt(time));
+        if (this.midi.active) this.midi.glide(handle, midi + studioVoice.transpose, this.perfAt(time));
       },
       off: (_player, handle, time) => {
         this.looperImpl?.noteOff(handle, time);
@@ -1048,11 +1072,11 @@ class Engine implements MusicEngine {
     }
   }
 
-  /** Mouth openness -> 0..1 dynamics, like a breath controller. */
+  /** Mouth openness -> 0..1 dynamics, like a breath controller (through the velocity curve). */
   private mouthDynamics(face: FaceState | null, closeTh: number): number {
     if (!face) return 0;
     const x = clamp01((face.mouthOpen - closeTh) / Math.max(0.1, 0.85 - closeTh));
-    return 0.22 + 0.78 * Math.pow(x, 0.8);
+    return studioVoice.velocity(x);
   }
 
   private updateHandVolume(hand: HandState | null, dt: number, now: number): void {
@@ -1497,10 +1521,11 @@ class Engine implements MusicEngine {
   private position(): void {
     const m = this.m;
     const ctx = this.ctx;
+    const beats = this.meterClock.meter.beats;
     const loopBeat = this.looperImpl ? this.looperImpl.loopBeat() : -1;
     if (loopBeat >= 0) {
-      m.bar = Math.floor(loopBeat / 4) + 1;
-      m.beat = (loopBeat % 4) + 1;
+      m.bar = Math.floor(loopBeat / beats) + 1;
+      m.beat = (loopBeat % beats) + 1;
       return;
     }
     if (!ctx || !this.groove?.isRunning || this.clockId === null || ctx.transport.state !== 'started') {
@@ -1510,9 +1535,9 @@ class Engine implements MusicEngine {
     }
     const t = ctx.transport;
     const ticks = Math.max(0, t.getTicksAtTime(ctx.currentTime));
-    const beats = Math.floor(ticks / t.PPQ);
-    m.bar = Math.floor(beats / 4) + 1;
-    m.beat = (beats % 4) + 1;
+    this.meterClock.position(ticks / (t.PPQ / 4), this.pos);
+    m.bar = this.pos.bar;
+    m.beat = this.pos.beat;
   }
 
   private currentGrooveChord(): GrooveChord {

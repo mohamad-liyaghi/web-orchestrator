@@ -12,8 +12,12 @@
  * Notes are stored in Transport ticks, so loops follow tempo changes.
  *
  * A take lasts one loop: it starts at once when loops are already playing (overdub), at the next
- * bar when only the beat runs, or after a one-bar metronome count-in from silence. It stops by
- * itself after one pass, or earlier on request. Every take (and every clear) can be undone.
+ * bar when only the beat runs, or after a one-bar metronome count-in from silence (at once when
+ * the count-in is switched off). It stops by itself after one pass, or earlier on request. Every
+ * take (and every clear) can be undone.
+ *
+ * Bars follow the engine's meter (a 3/4 loop bar is three beats long) and the quantize grid
+ * follows its swing.
  */
 import { Synth } from 'tone/build/esm/classes.js';
 import type { Context } from 'tone/build/esm/core/context/Context.js';
@@ -110,8 +114,14 @@ export interface LooperHost {
   /** The Transport clock is running (the engine's grid callbacks are coming). */
   clockRunning(): boolean;
   grooveRunning(): boolean;
-  /** Swing of the beat (fraction of a sixteenth the off-sixteenths are late), 0 when no beat. */
-  swing(): number;
+  /** How late bar sixteenth `barStep` sounds (swing), in sixteenths; 0 when nothing swings. */
+  gridOffset(barStep: number): number;
+  /** Sixteenths per bar, per counted beat, and counted beats per bar of the current meter. */
+  meter(): { readonly steps: number; readonly beatSteps: number; readonly beats: number };
+  /** Transport tick of a downbeat of the current meter (bars are counted from it). */
+  meterOrigin(): number;
+  /** Count a bar in before a take that starts from silence. */
+  countIn(): boolean;
 }
 
 const mod = (a: number, n: number): number => ((a % n) + n) % n;
@@ -164,7 +174,15 @@ export class Looper {
     return this.ppq / 4;
   }
   private get barTicks(): number {
-    return this.ppq * 4;
+    return this.sixteenthTicks * this.host.meter().steps;
+  }
+  private get beatTicks(): number {
+    return this.sixteenthTicks * this.host.meter().beatSteps;
+  }
+  /** Start of the bar containing `tick` (bars counted from the meter origin). */
+  private barFloor(tick: number): number {
+    const o = this.host.meterOrigin();
+    return o + Math.floor((tick - o) / this.barTicks) * this.barTicks;
   }
   private get loopTicks(): number {
     return this.barTicks * this.bars;
@@ -181,12 +199,12 @@ export class Looper {
   /** Pulls a loop-relative tick halfway toward the nearest (swung) sixteenth. */
   private quantize(tick: number): number {
     const six = this.sixteenthTicks;
-    const swing = this.host.grooveRunning() ? this.host.swing() * six : 0;
+    const steps = this.host.meter().steps;
     const base = Math.floor(tick / six);
     let best = tick;
     let bestDist = Infinity;
-    for (let s = base - 1; s <= base + 1; s++) {
-      const g = s * six + (s % 2 !== 0 ? swing : 0);
+    for (let s = base - 1; s <= base + 2; s++) {
+      const g = s * six + this.host.gridOffset(mod(s, steps)) * six;
       const d = Math.abs(g - tick);
       if (d < bestDist) {
         bestDist = d;
@@ -269,17 +287,18 @@ export class Looper {
     let from: number;
     let clicks = false;
     if (!this.host.clockRunning()) {
-      // From silence: the clock starts at tick 0, one bar of clicks, then recording.
-      this.origin = bar;
-      from = bar;
-      clicks = true;
+      // From silence: the clock starts at tick 0, one bar of clicks, then recording (or recording
+      // at once without the count-in).
+      clicks = this.host.countIn();
+      from = clicks ? bar : 0;
+      this.origin = from;
     } else if (this.origin === null) {
       // The beat (or an arpeggio) is running, no loops yet: start on a bar line.
       const now = this.nowTicks();
-      const k = Math.floor(now / bar);
-      from = (now - k * bar < this.sixteenthTicks * LATE_PRESS_SIXTEENTHS ? k : k + 1) * bar;
+      const b0 = this.barFloor(now);
+      from = now - b0 < this.sixteenthTicks * LATE_PRESS_SIXTEENTHS ? b0 : b0 + bar;
       this.origin = from;
-      clicks = !this.host.grooveRunning();
+      clicks = !this.host.grooveRunning() && this.host.countIn();
     } else {
       // Loops are playing: overdub from right now, for one full pass.
       from = Math.max(0, Math.floor(this.nowTicks()));
@@ -367,7 +386,7 @@ export class Looper {
       this.stopTrack(index, 0.06);
     }
     if (this.origin === null && this.hasContent && this.host.clockRunning()) {
-      this.origin = Math.floor(this.nowTicks() / this.barTicks) * this.barTicks;
+      this.origin = this.barFloor(this.nowTicks());
     }
     this.afterContentChange();
     const names = entry.tracks.map((t) => t.index + 1).join(', ');
@@ -390,14 +409,35 @@ export class Looper {
     if (this.take) this.finishTake(this.nowTicks());
     const oldL = this.loopTicks;
     this.bars = bars;
+    this.relength(oldL);
+    // The loop start stays put: a longer loop repeats the old one, so playback continues seamlessly.
+    this.afterContentChange();
+  }
+
+  /**
+   * The meter changed (bar length `oldBarTicks` before): loops keep their notes, cut or repeated
+   * to the new loop length, and restart on the new meter's downbeat at tick `origin`.
+   */
+  meterChanged(oldBarTicks: number, origin: number): void {
+    if (this.take) this.finishTake(this.nowTicks());
+    this.relength(oldBarTicks * this.bars);
+    if (this.hasContent) this.origin = origin;
+    this.afterContentChange();
+  }
+
+  /** Fits every track recorded with loop length `oldL` to the current loop length. */
+  private relength(oldL: number): void {
     const L = this.loopTicks;
+    if (L === oldL) return;
     for (const t of this.tracks) {
       if (!t.events.length) continue;
       let next: LoopEvent[];
       if (L > oldL) {
         // Longer loop: repeat what is there so the music keeps going.
         next = [];
-        for (let k = 0; k < L / oldL; k++) for (const e of t.events) next.push({ ...e, tick: e.tick + k * oldL, notBefore: 0 });
+        for (let k = 0; k * oldL < L; k++) {
+          for (const e of t.events) if (e.tick + k * oldL < L) next.push({ ...e, tick: e.tick + k * oldL, dur: Math.min(e.dur, L - 12), notBefore: 0 });
+        }
       } else {
         next = t.events.filter((e) => e.tick < L).map((e) => ({ ...e, dur: Math.min(e.dur, L - 12) }));
       }
@@ -407,8 +447,6 @@ export class Looper {
     // Recorded positions changed meaning; old snapshots cannot come back.
     this.undoStack.length = 0;
     this.stopAllSounding(0.06);
-    // The loop start stays put: a longer loop repeats the old one, so playback continues seamlessly.
-    this.afterContentChange();
   }
 
   private afterContentChange(): void {
@@ -569,9 +607,10 @@ export class Looper {
     // A take ends after one pass (notes still held are cut at the loop point).
     if (take && t0 > take.until) this.finishTake(take.until);
     const tk = this.take;
-    if (tk && !this.host.grooveRunning() && t0 % this.ppq === 0) {
-      if (tk.clicks && t0 < tk.from && t0 >= tk.from - this.barTicks) this.metronome(time, t0 === tk.from - this.barTicks ? 1 : 0.7);
-      else if (tk.guide && t0 >= tk.from) this.metronome(time, t0 % this.barTicks === tk.from % this.barTicks ? 0.45 : 0.28);
+    if (tk && !this.host.grooveRunning() && mod(t0 - tk.from, this.beatTicks) === 0) {
+      const bar = this.barTicks;
+      if (tk.clicks && t0 < tk.from && t0 >= tk.from - bar) this.metronome(time, t0 === tk.from - bar ? 1 : 0.7);
+      else if (tk.guide && t0 >= tk.from) this.metronome(time, mod(t0 - tk.from, bar) === 0 ? 0.45 : 0.28);
     }
 
     const origin = this.origin;
@@ -675,13 +714,13 @@ export class Looper {
     this.bump();
   }
 
-  /** Beats into the loop (0-based) sounding now, -1 when no loop runs. */
+  /** Beats of the meter into the loop (0-based) sounding now, -1 when no loop runs. */
   loopBeat(): number {
     const origin = this.origin;
     if (origin === null || !this.host.clockRunning() || this.host.ctx.transport.state !== 'started') return -1;
     const now = this.nowTicks();
     if (now < origin) return -1;
-    return Math.floor(mod(now - origin, this.loopTicks) / this.ppq);
+    return Math.floor(mod(now - origin, this.loopTicks) / this.beatTicks);
   }
 
   /** Number of notes the looper holds right now (tests: no stuck notes). */
@@ -712,8 +751,9 @@ export class Looper {
     st.countIn = 0;
     st.takeProgress = 0;
     if (take && (!running || now < take.from)) {
+      const beats = this.host.meter().beats;
       st.phase = 'count-in';
-      st.countIn = running ? Math.min(4, Math.max(1, Math.ceil((take.from - now) / this.ppq))) : 4;
+      st.countIn = running ? Math.min(beats, Math.max(1, Math.ceil((take.from - now) / this.beatTicks))) : take.clicks ? beats : 1;
     } else if (take) {
       st.phase = 'recording';
       st.takeProgress = Math.min(1, Math.max(0, (now - take.from) / L));

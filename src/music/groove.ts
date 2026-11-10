@@ -10,8 +10,9 @@
 import { Filter, Gain, MembraneSynth, NoiseSynth, PolySynth, Synth } from 'tone/build/esm/classes.js';
 import type { BaseContext } from 'tone/build/esm/core/context/BaseContext.js';
 import type { InputNode } from 'tone/build/esm/core/context/ToneAudioNode.js';
-import type { BeatStyle } from '../types';
-import { midiToFreq } from './theory';
+import type { BeatStyle, TimeSignature } from '../types';
+import { METERS, swingSteps, type Meter } from './studio/meter';
+import { studioVoice } from './studio/voice';
 
 export interface GrooveChord {
   /** Pitch class of the root. */
@@ -25,8 +26,10 @@ interface Pattern {
   snare: number[];
   hat: number[];
   bass: number[];
-  /** Delay of the off-sixteenths as a fraction of a sixteenth (swing). */
+  /** Delay of the off-sixteenths as a fraction of a sixteenth (the style's own swing). */
   swing: number;
+  /** The style swings sixteenths (house), not eighths, when the user adds swing. */
+  sixteenthSwing?: boolean;
   level: number;
   pad: boolean;
   hatTone: number;
@@ -71,6 +74,7 @@ const PATTERNS: Record<BeatStyle, Pattern> = {
     hat: [_, _, 0.9, _, _, _, 0.9, _, _, _, 0.9, _, _, _, 0.9, 0.3],
     bass: [_, _, 0.9, _, _, _, 0.9, _, _, _, 0.9, _, _, _, 0.9, _],
     swing: 0.04,
+    sixteenthSwing: true,
     level: 0.55,
     pad: true,
     hatTone: 8500,
@@ -87,6 +91,72 @@ const PATTERNS: Record<BeatStyle, Pattern> = {
     click: true,
   },
 };
+
+type Hits = ReadonlyArray<readonly [step: number, velocity: number]>;
+
+/** Kick and snare of each odd meter: waltz 3/4, compound 6/8, 5/4 as 3+2, 7/8 as 2+2+3. */
+const ODD_METERS: Record<Exclude<TimeSignature, '4/4'>, { kick: Hits; snare: Hits }> = {
+  '3/4': { kick: [[0, 1]], snare: [[4, 0.55], [8, 0.55]] },
+  '6/8': { kick: [[0, 1], [10, 0.4]], snare: [[6, 1]] },
+  '5/4': { kick: [[0, 1], [12, 0.9]], snare: [[8, 1], [16, 0.9]] },
+  '7/8': { kick: [[0, 1], [8, 0.85]], snare: [[4, 1], [12, 0.7]] },
+};
+
+/**
+ * A style's pattern in a meter. 4/4 keeps the hand-written patterns; the other meters are built
+ * from their accent map and the style's character (hat feel, bass rhythm, four-on-the-floor).
+ */
+const built = new Map<string, Pattern>();
+
+export function patternFor(style: BeatStyle, meter: Meter): Pattern {
+  const base = PATTERNS[style] ?? PATTERNS.pop;
+  if (meter.id === '4/4' || base.click) return base;
+  const key = `${style}:${meter.id}`;
+  let p = built.get(key);
+  if (!p) built.set(key, (p = buildPattern(style, base, meter)));
+  return p;
+}
+
+function buildPattern(style: BeatStyle, base: Pattern, meter: Meter): Pattern {
+  const map = ODD_METERS[meter.id as Exclude<TimeSignature, '4/4'>];
+  const n = meter.steps;
+  const kick = new Array<number>(n).fill(0);
+  const snare = new Array<number>(n).fill(0);
+  const hat = new Array<number>(n).fill(0);
+  const bass = new Array<number>(n).fill(0);
+  const soft = style === 'lofi' ? 0.75 : 1;
+  for (const [i, v] of map.kick) kick[i] = v * soft;
+  for (const [i, v] of map.snare) snare[i] = v * (style === 'lofi' ? 0.7 : 1);
+  if (style === 'house') {
+    // Four on the floor: a kick on every beat (every group start in eighth meters).
+    const pulses = meter.eighths ? meter.groups : Array.from({ length: meter.beats }, (_, b) => b * meter.beatSteps);
+    for (const i of pulses) kick[i] = 1;
+  }
+  const isGroup = (i: number): boolean => meter.groups.includes(i);
+  for (let i = 0; i < n; i += 2) {
+    const onBeat = meter.eighths ? isGroup(i) : i % meter.beatSteps === 0;
+    switch (style) {
+      case 'rock':
+        hat[i] = onBeat ? 0.75 : 0.6;
+        bass[i] = isGroup(i) ? 1 : 0.7;
+        break;
+      case 'lofi':
+        hat[i] = onBeat ? 0.35 : 0.25;
+        if (kick[i]) bass[i] = 0.8 * kick[i]!;
+        break;
+      case 'house':
+        if (!onBeat) {
+          hat[i] = 0.9;
+          bass[i] = 0.9;
+        }
+        break;
+      default:
+        hat[i] = onBeat ? 0.5 : 0.8;
+        if (kick[i]) bass[i] = kick[i]! >= 0.9 ? 1 : 0.6;
+    }
+  }
+  return { ...base, kick, snare, hat, bass };
+}
 
 export class Groove {
   readonly output = new Gain(0);
@@ -123,7 +193,11 @@ export class Groove {
   private running = false;
   private lastPadKey = '';
   private lowPower = false;
+  private styleId: BeatStyle = 'pop';
+  private meter: Meter = METERS['4/4'];
   private style: Pattern = PATTERNS.pop;
+  /** Metronome click level relative to the default click volume. */
+  private clickLevel = 1;
   /** The player's own chords cover the harmony (chords mode): drums only. */
   private harmony = true;
 
@@ -151,8 +225,39 @@ export class Groove {
     return this.style.swing;
   }
 
+  /** The style swings sixteenths rather than eighths. */
+  get sixteenthSwing(): boolean {
+    return !!this.style.sixteenthSwing;
+  }
+
+  /**
+   * How late grid sixteenth `barStep` sounds, in sixteenths: the user's swing when set (eighths,
+   * or sixteenths for house and eighth-based meters), else the style's own groove.
+   */
+  offset(barStep: number, userSwing: number): number {
+    if (userSwing > 0) return swingSteps(barStep, userSwing, this.sixteenthSwing || this.meter.eighths);
+    return barStep % 2 ? this.style.swing : 0;
+  }
+
+  /** Metronome click volume relative to the default (0 = silent). */
+  setClickLevel(level: number): void {
+    this.clickLevel = Math.max(0, level);
+    this.click.volume.value = this.clickLevel > 0 ? -8 + 20 * Math.log10(this.clickLevel) : -Infinity;
+  }
+
+  setMeter(meter: Meter): void {
+    if (meter === this.meter) return;
+    this.meter = meter;
+    this.lastPadKey = '';
+    this.applyPattern(patternFor(this.styleId, meter));
+  }
+
   setStyle(style: BeatStyle): void {
-    const next = PATTERNS[style] ?? PATTERNS.pop;
+    this.styleId = style;
+    this.applyPattern(patternFor(style, this.meter));
+  }
+
+  private applyPattern(next: Pattern): void {
     if (next === this.style) return;
     this.style = next;
     this.hatFilter.frequency.setValueAtTime(next.hatTone, this.ctx.currentTime);
@@ -223,14 +328,21 @@ export class Groove {
     return pad;
   }
 
-  /** Schedules sixteenth `step` (counted from the Transport start) at audio time `time`. */
-  schedule(step: number, time: number, sixteenth: number): void {
+  /**
+   * Schedules bar sixteenth `s` (0..meter.steps-1) at audio time `time`, `offset` sixteenths late
+   * (swing).
+   */
+  schedule(s: number, time: number, sixteenth: number, offset: number): void {
     if (!this.running) return;
     const p = this.style;
-    const s = ((step % 16) + 16) % 16;
-    const at = time + (s % 2 ? sixteenth * p.swing : 0);
+    const m = this.meter;
+    const at = time + offset * sixteenth;
     if (p.click) {
-      if (s % 4 === 0) this.click.triggerAttackRelease(s === 0 ? 1760 : 1320, 0.03, at, s === 0 ? 1 : 0.55);
+      if (s % m.beatSteps !== 0 || this.clickLevel <= 0) return;
+      // Downbeat high, other group starts (5/4, 6/8, 7/8) a little accented, the rest soft.
+      if (s === 0) this.click.triggerAttackRelease(1760, 0.03, at, 1);
+      else if (m.groups.includes(s)) this.click.triggerAttackRelease(1540, 0.03, at, 0.75);
+      else this.click.triggerAttackRelease(1320, 0.03, at, 0.55);
       return;
     }
     const k = p.kick[s];
@@ -242,19 +354,19 @@ export class Groove {
     if (!this.harmony) return;
     const c = this.chord();
     const b = p.bass[s];
-    if (b) this.bass.triggerAttackRelease(midiToFreq(36 + c.root), sixteenth * 1.6, at, b);
-    // Pad: on the bar, or on the next beat when the chord changed.
-    if (!p.pad || s % 4 !== 0) return;
+    if (b) this.bass.triggerAttackRelease(studioVoice.hz(36 + c.root), sixteenth * 1.6, at, b);
+    // Pad: on the bar, or on the next beat (group in eighth meters) when the chord changed.
+    if (!p.pad || (m.eighths ? !m.groups.includes(s) : s % 4 !== 0)) return;
     const key = `${c.root}:${c.intervals.join(',')}`;
     if (s === 0 || key !== this.lastPadKey) {
       this.lastPadKey = key;
       const notes = c.intervals
         .slice(0, this.lowPower ? 2 : 3)
-        .map((i) => midiToFreq(48 + c.root + i + (c.root + i > 7 ? -12 : 0)));
+        .map((i) => studioVoice.hz(48 + c.root + i + (c.root + i > 7 ? -12 : 0)));
       // Run after the Transport callback returns (same audio time): when the PolySynth has to build
       // a voice, Tone's constructors schedule without a time and warn inside a Transport callback.
       const pad = this.pad;
-      const length = sixteenth * (16 - s) * 0.98;
+      const length = sixteenth * (m.steps - s) * 0.98;
       queueMicrotask(() => {
         if (pad.disposed) return;
         pad.releaseAll(time);
