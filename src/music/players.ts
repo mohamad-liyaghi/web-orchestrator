@@ -222,6 +222,8 @@ interface SynthSlot {
   t0: number;
   /** Audio time after which the voice is silent again. */
   freeAt: number;
+  /** Latest attack/release time scheduled on the voice: Tone rejects events before it. */
+  last: number;
 }
 
 export class SynthPlayer implements Player {
@@ -249,21 +251,31 @@ export class SynthPlayer implements Player {
     if (this.disposed || !this.spec.synth) return -1;
     time = Math.max(time, this.output.context.currentTime);
     const slot = this.pickSlot(time);
+    // A stolen voice may already hold a strum/arpeggio note scheduled slightly ahead.
+    const at = Math.max(time, slot.last + 0.002);
     slot.handle = ++handleSeq;
     slot.held = true;
-    slot.t0 = time;
+    slot.t0 = at;
+    slot.last = at;
     slot.freeAt = Infinity;
-    // A fresh attack must not glide in from the voice's previous pitch.
-    slot.voice.frequency.cancelScheduledValues(time);
-    slot.voice.frequency.setValueAtTime(midiToFreq(midi), time);
-    slot.voice.triggerAttack(midiToFreq(midi), time, Math.max(0.05, Math.min(1, velocity)));
+    try {
+      // A fresh attack must not glide in from the voice's previous pitch.
+      slot.voice.frequency.cancelScheduledValues(at);
+      slot.voice.frequency.setValueAtTime(midiToFreq(midi), at);
+      slot.voice.triggerAttack(midiToFreq(midi), at, Math.max(0.05, Math.min(1, velocity)));
+    } catch (e) {
+      slot.held = false;
+      slot.freeAt = 0;
+      console.warn('[music] synth note skipped:', e instanceof Error ? e.message : e);
+      return -1;
+    }
     return slot.handle;
   }
 
   glide(handle: number, midi: number, time: number): boolean {
     const slot = this.slots.find((s) => s.handle === handle && s.held);
     if (!slot) return false;
-    slot.voice.setNote(midiToFreq(midi), time);
+    slot.voice.setNote(midiToFreq(midi), Math.max(time, slot.last));
     return true;
   }
 
@@ -286,14 +298,16 @@ export class SynthPlayer implements Player {
 
   private releaseSlot(s: SynthSlot, time: number): void {
     s.held = false;
-    s.voice.triggerRelease(Math.max(time, s.t0 + 0.005));
-    s.freeAt = time + this.spec.release * 1.5 + 0.05;
+    const at = Math.max(time, s.t0 + 0.005, s.last + 0.002);
+    s.last = at;
+    s.voice.triggerRelease(at);
+    s.freeAt = at + this.spec.release * 1.5 + 0.05;
   }
 
   private addSlot(): SynthSlot {
     const voice = createSynthVoice(this.spec.synth!);
     voice.connect(this.output);
-    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0 };
+    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0, last: 0 };
     this.slots.push(slot);
     return slot;
   }
