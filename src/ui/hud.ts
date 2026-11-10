@@ -1,5 +1,6 @@
 import type { HandState, InstrumentDef, Lane, Settings, StageRenderData, VoiceState } from '../types';
 import { GESTURE_GLYPH } from '../gestures';
+import { mouthThresholds } from '../settings';
 import { HAND_CONNECTIONS } from './illustrations';
 import { prefersReducedMotion } from './dom';
 
@@ -981,7 +982,7 @@ export class HudRenderer {
       const fh = mh * Math.min(1, open);
       roundRect(ctx, mx, my + mh - fh, 5, fh, 2.5);
       ctx.fill();
-      const thr = 0.36 - 0.26 * settings.sensitivity; // keep in sync with settings.mouthThresholds
+      const thr = mouthThresholds(settings.sensitivity)[0];
       ctx.fillStyle = WHITE;
       ctx.fillRect(mx - 3, my + mh - mh * thr, 11, 1.5);
       ctx.font = FONT_TAG;
