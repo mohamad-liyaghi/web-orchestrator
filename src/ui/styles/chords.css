@@ -367,3 +367,52 @@
     font-size: 0.9rem;
   }
 }
+
+/* How the chord is played (strum pattern rhythm / arpeggio rate). */
+.cd-play {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.cd-play[hidden],
+.cd-steps[hidden] {
+  display: none;
+}
+
+.cd-steps {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.cd-steps > span {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cd-steps .cs-d {
+  color: var(--bg);
+  background: var(--amber);
+}
+
+.cd-steps .cs-u {
+  color: var(--amber);
+  background: rgba(255, 181, 71, 0.2);
+}
+
+.cd-steps .cs-rest {
+  color: var(--ink-4);
+}

@@ -1,5 +1,6 @@
 import type { MusicMetrics, Settings } from '../types';
 import { TextSlot, frag, h, setClass } from './dom';
+import { chordPlayLabel, strumSpoken, strumSteps } from './musician';
 
 /** Finger patterns [thumb, index, middle, ring, pinky] that pick each scale degree in chords mode. */
 export const DEGREE_PATTERNS: ReadonlyArray<readonly [boolean, boolean, boolean, boolean, boolean]> = [
@@ -67,13 +68,26 @@ export class ChordDeck {
   private degree = -1;
   private styleIx = -2;
   private diatonicKey = '';
+  private readonly play: HTMLElement;
+  private readonly playText: TextSlot;
+  private readonly playSteps: HTMLElement;
+  private playKey = '';
 
   constructor() {
     this.roman = new TextSlot(h('span', { class: 'cd-roman' }));
     this.name = new TextSlot(h('span', { class: 'cd-name' }));
     this.style = new TextSlot(h('span', { class: 'cd-style' }));
     this.borrowed = h('span', { class: 'cd-borrowed', text: 'borrowed', hidden: true });
-    const big = h('div', { class: 'cd-big' }, this.roman.el, h('div', { class: 'cd-meta' }, this.name.el, h('div', { class: 'cd-tags' }, this.style.el, this.borrowed)));
+    // How the chord is played: strum pattern with its rhythm, or the arpeggio rate.
+    this.playText = new TextSlot(h('span', { class: 'cd-play-text' }));
+    this.playSteps = h('span', { class: 'cd-steps', 'aria-hidden': 'true' });
+    this.play = h('div', { class: 'cd-play', hidden: true }, this.playText.el, this.playSteps);
+    const big = h(
+      'div',
+      { class: 'cd-big' },
+      this.roman.el,
+      h('div', { class: 'cd-meta' }, this.name.el, h('div', { class: 'cd-tags' }, this.style.el, this.borrowed), this.play),
+    );
 
     const guide = h('ol', { class: 'cd-guide', 'aria-label': 'Left hand: finger patterns for each chord' });
     for (let i = 0; i < 7; i++) {
@@ -102,6 +116,18 @@ export class ChordDeck {
     this.el.hidden = !on;
   }
 
+  private paintPlay(s: Settings): void {
+    const key = `${s.chordPlay}|${s.strumPattern}|${s.arpRate}|${s.arpPattern}`;
+    if (key === this.playKey) return;
+    this.playKey = key;
+    this.play.hidden = s.chordPlay === 'block';
+    this.playText.set(chordPlayLabel(s));
+    const steps = s.chordPlay === 'strum' ? strumSteps(s.strumPattern) : '';
+    this.playSteps.replaceChildren(...steps.split('').map((c) => h('span', { class: c === '·' ? 'cs-rest' : c === 'D' ? 'cs-d' : 'cs-u', text: c })));
+    this.playSteps.hidden = !steps;
+    this.play.setAttribute('aria-label', s.chordPlay === 'strum' ? `${chordPlayLabel(s)}: ${strumSpoken(s.strumPattern)}` : chordPlayLabel(s));
+  }
+
   update(m: MusicMetrics, settings: Settings): void {
     if (this.el.hidden) return;
     // Diatonic names change only with the key/scale.
@@ -124,6 +150,7 @@ export class ChordDeck {
     this.name.set(m.chord || (deg >= 0 ? (m.diatonic[deg] ?? '') : 'Raise your left hand'));
     this.style.set(m.chordStyle || settings.chordPlay);
     if (this.borrowed.hidden === m.borrowed) this.borrowed.hidden = !m.borrowed;
+    this.paintPlay(settings);
     setClass(this.el, 'is-empty', deg < 0 && !m.chord);
 
     const sl = m.chordStyle.toLowerCase();

@@ -1,5 +1,6 @@
 import type { InstrumentDef, Lane, ScaleDef, Settings, StageRenderData, VoiceState } from '../types';
-import { NOTE_NAMES, TextSlot, formatClock, h, midiName, midiToHz, setClass } from './dom';
+import { NOTE_NAMES, TextSlot, formatClock, h, midiName, setClass } from './dom';
+import { beatsPerBar } from './musician';
 
 const BLACK = [false, true, false, true, false, false, true, false, true, false, true, false];
 
@@ -35,7 +36,11 @@ export class MetricsStrip {
   private readonly inst = cell('Instruments', 'm-inst');
   private readonly volFill: HTMLElement;
   private readonly exprFill: HTMLElement;
-  private readonly beatDots: HTMLElement[] = [];
+  private beatDots: HTMLElement[] = [];
+  private readonly beatsEl: HTMLElement;
+  private readonly tsBadge: TextSlot;
+  private readonly tuneBadge: TextSlot;
+  private studioKey = '';
   private readonly piano: MiniPiano;
   private readonly leftLabel: TextSlot;
   private lastBeat = -1;
@@ -56,14 +61,17 @@ export class MetricsStrip {
     this.vol.el.append(h('span', { class: 'meter seg', 'aria-hidden': 'true' }, this.volFill));
     this.exprFill = h('span', { class: 'meter-fill' });
     this.expr.el.append(h('span', { class: 'meter', 'aria-hidden': 'true' }, this.exprFill));
-    const beats = h('span', { class: 'beats', 'aria-hidden': 'true' });
-    for (let i = 0; i < 4; i++) {
-      const d = h('span', { class: 'beat' });
-      this.beatDots.push(d);
-      beats.append(d);
-    }
-    this.tempo.el.append(beats);
+    this.beatsEl = h('span', { class: 'beats', 'aria-hidden': 'true' });
+    this.setBeats(4);
+    this.tempo.el.append(this.beatsEl);
     this.leftLabel = new TextSlot(this.left.el.querySelector('.m-label') as HTMLElement);
+    // Time signature next to the tempo, concert pitch / transpose next to the key (when not standard).
+    const tsBadge = h('span', { class: 'm-badge' });
+    const tuneBadge = h('span', { class: 'm-badge m-badge-tune', hidden: true });
+    (this.tempo.el.querySelector('.m-label') as HTMLElement).append(tsBadge);
+    (this.key.el.querySelector('.m-label') as HTMLElement).append(tuneBadge);
+    this.tsBadge = new TextSlot(tsBadge);
+    this.tuneBadge = new TextSlot(tuneBadge);
 
     row.append(
       this.key.el,
@@ -92,6 +100,34 @@ export class MetricsStrip {
     );
   }
 
+  private setBeats(n: number): void {
+    this.beatDots = [];
+    this.beatsEl.replaceChildren();
+    for (let i = 0; i < n; i++) {
+      const d = h('span', { class: 'beat' });
+      this.beatDots.push(d);
+      this.beatsEl.append(d);
+    }
+    this.lastBeat = -1;
+    this.lastBar = -1;
+  }
+
+  /** Time signature, tuning and transpose badges; cheap no-op unless one of them changed. */
+  private paintStudio(s: Settings): void {
+    const key = `${s.timeSignature}|${s.tuning}|${s.transpose}`;
+    if (key === this.studioKey) return;
+    this.studioKey = key;
+    this.tsBadge.set(s.timeSignature);
+    const n = beatsPerBar(s.timeSignature);
+    if (n !== this.beatDots.length) this.setBeats(n);
+    const parts: string[] = [];
+    if (s.tuning !== 440) parts.push(`A${s.tuning}`);
+    if (s.transpose !== 0) parts.push(`${s.transpose > 0 ? '+' : '−'}${Math.abs(s.transpose)} st`);
+    this.tuneBadge.set(parts.join(' · '));
+    this.tuneBadge.el.hidden = parts.length === 0;
+    this.tuneBadge.el.title = parts.length ? `Concert pitch A4 = ${s.tuning} Hz${s.transpose ? `, transposed ${s.transpose > 0 ? 'up' : 'down'} ${Math.abs(s.transpose)} semitones` : ''}` : '';
+  }
+
   setScale(settings: Settings, scales: readonly ScaleDef[]): void {
     const sc = scales.find((s) => s.id === settings.scale);
     this.piano.setScale(settings.key, sc?.intervals ?? []);
@@ -110,6 +146,7 @@ export class MetricsStrip {
     // the numeric cells are refreshed ~12 times a second to keep string work low.
     const slow = now - this.lastSlowAt >= 80;
     if (slow) this.lastSlowAt = now;
+    this.paintStudio(settings);
     this.key.value.set(m.keyName || NOTE_NAMES[settings.key] || 'C');
     this.key.sub.set(m.scaleName);
     this.chord.value.set(m.chord || '—');
@@ -117,7 +154,8 @@ export class MetricsStrip {
 
     if (lead && lead.midi !== null) {
       this.lead.value.set(lead.note || midiName(lead.midi));
-      if (slow) this.lead.sub.set(`${midiToHz(lead.midi).toFixed(lead.midi % 1 ? 1 : 0)} Hz`);
+      // Sounding pitch: the lanes keep written names, the Hz follow tuning and transpose.
+      if (slow) this.lead.sub.set(`${(settings.tuning * Math.pow(2, (lead.midi + settings.transpose - 69) / 12)).toFixed(lead.midi % 1 ? 1 : 0)} Hz`);
     } else {
       this.lead.value.set('—');
       this.lead.sub.set(lead?.active ? 'ready' : 'no hand');
@@ -186,7 +224,8 @@ export class MetricsStrip {
         this.lastBeat = m.beat;
         this.lastBar = m.bar;
         this.tempo.sub.set(`BPM ${m.bar}:${m.beat}`);
-        this.beatDots.forEach((d, i) => setClass(d, 'on', i === (m.beat - 1) % 4));
+        const n = this.beatDots.length;
+        this.beatDots.forEach((d, i) => setClass(d, 'on', i === (m.beat - 1) % n));
       }
     } else {
       this.tempo.sub.set('BPM · off');

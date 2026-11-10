@@ -345,3 +345,22 @@
     display: none;
   }
 }
+
+/* Time signature / tuning badges next to a cell label. */
+.m-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--hair-2);
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.m-badge[hidden] {
+  display: none;
+}
+
+.m-badge-tune {
+  border-color: rgba(255, 181, 71, 0.5);
+  color: var(--amber);
+}
