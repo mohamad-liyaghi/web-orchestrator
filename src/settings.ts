@@ -2,17 +2,18 @@ import type { ActionGesture, BeatStyle, ChordPlay, GestureAction, LeftHandRole, 
 import { clamp } from './geometry';
 
 export const DEFAULT_SETTINGS: Settings = {
-  mode: 'melody',
-  chordPlay: 'strum',
+  // Default experience: gesture chords, hands only (no face needed), on a zero-download synth pad.
+  mode: 'chords',
+  chordPlay: 'block',
   tiltControls: true,
-  lead: 'grand-piano',
-  bass: 'electric-bass',
+  lead: 'warm-pad',
+  bass: 'sub-bass',
   leftHand: 'volume',
   key: 0,
   scale: 'major-pentatonic',
   octave: 0,
   span: 15,
-  trigger: 'mouth',
+  trigger: 'always',
   sensitivity: 0.5,
   groove: false,
   beat: 'pop',
@@ -52,7 +53,8 @@ export const GESTURE_ACTIONS: readonly GestureAction[] = [
 ];
 export const LOOP_BARS: readonly LoopBars[] = [1, 2, 4, 8];
 
-const STORAGE_KEY = 'orchestrator.settings.v1';
+// v2: new defaults (chords mode, hands-only trigger); older saved settings are not carried over.
+const STORAGE_KEY = 'orchestrator.settings.v2';
 const SCALES: readonly ScaleId[] = [
   'major',
   'minor',
