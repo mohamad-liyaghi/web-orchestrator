@@ -821,6 +821,11 @@ class Engine implements MusicEngine {
         this.looperImpl?.noteOff(handle, time);
         this.midi.noteOff(handle, this.perfAt(time));
       },
+      cancel: (_player, handle, time) => {
+        this.looperImpl?.noteCancel(handle);
+        // The note-on already went out time-stamped: its note-off must not arrive first.
+        this.midi.noteOff(handle, this.perfAt(time + 0.001));
+      },
     };
   }
 

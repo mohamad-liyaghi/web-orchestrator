@@ -25,6 +25,19 @@ export interface NoteTap {
   /** A held note changed pitch without a new attack (synth legato). */
   glide(player: Player, handle: number, midi: number, time: number): void;
   off(player: Player, handle: number, time: number): void;
+  /** A note scheduled ahead was withdrawn before it sounded (instead of `off`). `time` is the
+   *  start it had been given. */
+  cancel(player: Player, handle: number, time: number): void;
+}
+
+/** Optional articulation of a note start. */
+export interface StartOptions {
+  /** Attack time in seconds (instrument default when omitted): softer re-attacks, legato. */
+  attack?: number;
+  /** Start at this pitch and bend to the note (slides, legato portamento on samples). */
+  bendFrom?: number;
+  /** Bend duration, seconds. */
+  bendTime?: number;
 }
 
 export interface Player {
@@ -34,11 +47,16 @@ export interface Player {
   tap: NoteTap | null;
   /** Starts a note; returns a handle (or -1 when the note cannot play). `gain` scales its level
    *  (loop playback reproduces the loudness the live channel had). */
-  start(midi: number, velocity: number, time: number, gain?: number): number;
+  start(midi: number, velocity: number, time: number, gain?: number, opts?: StartOptions): number;
   /** Legato pitch change of a held note. False when the player cannot glide (samples). */
   glide(handle: number, midi: number, time: number): boolean;
   /** Releases a note (release defaults to the instrument's own). */
   stop(handle: number, time: number, release?: number): void;
+  /** Withdraws a note scheduled to start after `time` so it never sounds (a note already
+   *  sounding is released quickly instead). */
+  cancel(handle: number, time: number): void;
+  /** Portamento of legato glides in seconds; null restores the instrument's own. */
+  setGlide(seconds: number | null): void;
   stopAll(time: number, release?: number): void;
   /** Number of notes still producing sound (held or releasing). */
   readonly activeCount: number;
@@ -93,7 +111,7 @@ export class SamplePlayer implements Player {
     return this.notes.length;
   }
 
-  start(midi: number, velocity: number, time: number, gain = 1): number {
+  start(midi: number, velocity: number, time: number, gain = 1, opts?: StartOptions): number {
     if (this.disposed) return -1;
     const m = Math.max(0, Math.min(127, Math.round(midi)));
     const zone = this.set.nearest[m];
@@ -103,7 +121,15 @@ export class SamplePlayer implements Player {
 
     const src = this.ctx.createBufferSource();
     src.buffer = zone.buffer;
-    src.playbackRate.value = Math.pow(2, (m - zone.midi) / 12);
+    const rate = Math.pow(2, (m - zone.midi) / 12);
+    if (opts?.bendFrom !== undefined && opts.bendTime && Math.abs(opts.bendFrom - m) > 0.01) {
+      // A short bend into the note: the slide / portamento illusion on a sample.
+      const from = Math.pow(2, (Math.max(m - 4, Math.min(m + 4, opts.bendFrom)) - zone.midi) / 12);
+      src.playbackRate.setValueAtTime(from, time);
+      src.playbackRate.exponentialRampToValueAtTime(rate, time + Math.max(0.005, opts.bendTime));
+    } else {
+      src.playbackRate.value = rate;
+    }
     if (zone.loop) {
       src.loop = true;
       src.loopStart = zone.loopStart;
@@ -112,7 +138,7 @@ export class SamplePlayer implements Player {
     const env = this.ctx.createGain();
     const v = Math.max(0, Math.min(1, velocity));
     const level = (this.spec.sustained ? 1 : 0.06 + 0.94 * Math.pow(v, 1.5)) * Math.max(0, Math.min(1, gain));
-    const attack = this.spec.sustained ? 0.012 : 0.0025;
+    const attack = Math.max(0.0015, opts?.attack ?? (this.spec.sustained ? 0.012 : 0.0025));
     env.gain.setValueAtTime(0, time);
     env.gain.linearRampToValueAtTime(level, time + attack);
     src.connect(env);
@@ -140,9 +166,34 @@ export class SamplePlayer implements Player {
     return false;
   }
 
+  setGlide(): void {
+    /* samples bend per note (StartOptions) */
+  }
+
   stop(handle: number, time: number, release = this.spec.release): void {
     const note = this.notes.find((n) => n.handle === handle);
     if (note) this.release(note, time, release);
+  }
+
+  cancel(handle: number, time: number): void {
+    const n = this.notes.find((x) => x.handle === handle);
+    if (!n || n.ended) return;
+    if (n.t0 <= time + 0.001 || n.releaseAt !== Infinity) {
+      this.release(n, time, 0.03);
+      return;
+    }
+    // Not started yet: silence the envelope and stop the source before it ever plays.
+    n.tapOff = true;
+    this.tap?.cancel(this, n.handle, n.t0);
+    const g = n.env.gain;
+    g.cancelScheduledValues(time);
+    g.setValueAtTime(0, time);
+    try {
+      n.src.stop(time);
+    } catch {
+      /* already stopped */
+    }
+    this.cleanup(n);
   }
 
   stopAll(time: number, release = this.spec.release): void {
@@ -253,6 +304,8 @@ interface SynthSlot {
   freeAt: number;
   /** Latest attack/release time scheduled on the voice: Tone rejects events before it. */
   last: number;
+  /** The preset's own portamento. */
+  portamento: number;
 }
 
 export class SynthPlayer implements Player {
@@ -260,6 +313,7 @@ export class SynthPlayer implements Player {
   tap: NoteTap | null = null;
   private readonly slots: SynthSlot[] = [];
   private disposed = false;
+  private glideOverride: number | null = null;
 
   constructor(
     readonly spec: InstrumentSpec,
@@ -289,6 +343,8 @@ export class SynthPlayer implements Player {
     slot.t0 = at;
     slot.last = at;
     slot.freeAt = Infinity;
+    const porta = this.glideOverride ?? slot.portamento;
+    if (slot.voice.portamento !== porta) slot.voice.portamento = porta;
     try {
       // A fresh attack must not glide in from the voice's previous pitch.
       slot.voice.frequency.cancelScheduledValues(at);
@@ -315,6 +371,40 @@ export class SynthPlayer implements Player {
   stop(handle: number, time: number): void {
     const slot = this.slots.find((s) => s.handle === handle);
     if (slot?.held) this.releaseSlot(slot, time);
+  }
+
+  setGlide(seconds: number | null): void {
+    this.glideOverride = seconds === null ? null : Math.max(0, Math.min(1, seconds));
+  }
+
+  cancel(handle: number, time: number): void {
+    const slot = this.slots.find((s) => s.handle === handle && s.held);
+    if (!slot) return;
+    time = Math.max(time, this.output.context.currentTime);
+    if (slot.t0 <= time + 0.001) {
+      this.releaseSlot(slot, time);
+      return;
+    }
+    // Not started yet: drop the scheduled attack, then release from whatever the voice holds.
+    slot.held = false;
+    this.tap?.cancel(this, slot.handle, slot.t0);
+    const v = slot.voice as unknown as Record<string, { cancel?: (after: number) => unknown } | undefined>;
+    try {
+      for (const k of ['envelope', 'filterEnvelope', 'modulationEnvelope']) v[k]?.cancel?.(time);
+      slot.voice.triggerRelease(time);
+      slot.last = time;
+      slot.freeAt = time + this.spec.release * 1.5 + 0.05;
+    } catch {
+      // Fall back to an ordinary release right after the attack.
+      const at = Math.max(slot.t0 + 0.005, slot.last + 0.002);
+      try {
+        slot.voice.triggerRelease(at);
+      } catch {
+        /* the voice is stolen or reused before long */
+      }
+      slot.last = at;
+      slot.freeAt = at + this.spec.release * 1.5 + 0.05;
+    }
   }
 
   stopAll(time: number): void {
@@ -345,7 +435,7 @@ export class SynthPlayer implements Player {
   private addSlot(): SynthSlot {
     const voice = createSynthVoice(this.spec.synth!);
     voice.connect(this.output);
-    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0, last: 0 };
+    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0, last: 0, portamento: voice.portamento };
     this.slots.push(slot);
     return slot;
   }

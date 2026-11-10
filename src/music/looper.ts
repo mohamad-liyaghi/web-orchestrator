@@ -466,6 +466,11 @@ export class Looper {
     this.commit(p, this.ticksAt(time));
   }
 
+  /** A note scheduled ahead was withdrawn before it sounded: it never happened. */
+  noteCancel(handle: number): void {
+    this.pending.delete(handle);
+  }
+
   /** The live channel level of a voice this frame: notes being recorded keep their peak. */
   voiceLevel(voice: VoiceId, gain: number): void {
     if (!this.pending.size) return;
