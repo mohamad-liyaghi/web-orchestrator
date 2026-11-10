@@ -52,9 +52,11 @@ class Player {
       this.t += FRAME;
     }
   }
+  /** No hand up: the lead voice is there but inactive (null would mean "do not judge"). */
   idle(n = 1) {
+    const silent = { ...voice(null, false, false), handId: null, active: false };
     for (let i = 0; i < n; i++) {
-      if (this.ctl.update(null, this.lanes, this.t)) this.finished = true;
+      if (this.ctl.update(silent, this.lanes, this.t)) this.finished = true;
       this.t += FRAME;
     }
   }
@@ -190,6 +192,20 @@ for (const song of SONGS) {
   const up = makeLanes(laneMidis.map((m) => m + 12));
   r = waitPerfect(song, up, 12);
   expect(r.st.onLanes && r.finished && r.st.accuracy === 1, `octave-shifted lanes: onLanes ${r.st.onLanes} acc ${r.st.accuracy}`);
+}
+
+// No lead to judge (chords mode) in tempo mode: the song clock holds, no note passes as a miss.
+{
+  const song = SONGS[0];
+  const ctl = new LearnController();
+  ctl.start(song, 'tempo', 1000);
+  const ms0 = ctl.state.songMs;
+  const setup = laneSetup(song);
+  const lanes = makeLanes(laneNotes(setup.key, setup.scale, setup.octave, setup.span));
+  for (let t = 1000; t < 11000; t += FRAME) ctl.update(null, lanes, t);
+  const st = ctl.state;
+  expect(st.misses === 0 && st.index === 0 && Math.abs(st.songMs - ms0) < 1, `tempo paused without a lead: misses ${st.misses} songMs ${st.songMs}`);
+  console.log(`tempo paused without a lead: misses ${st.misses}`);
 }
 
 // Best-score store with an in-memory localStorage.
