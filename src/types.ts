@@ -481,6 +481,9 @@ export interface StageCallbacks {
   onRecordToggle(): void;
   /** User left the stage (back to the landing page). */
   onExit(): void;
+  /** Start learning a song (null = stop learning). `mode` defaults to 'wait'. Optional: without it
+   *  the stage hides its Learn entry. */
+  onLearn?(songId: string | null, mode?: LearnMode): void;
 }
 
 export interface HudStatus {
@@ -513,6 +516,8 @@ export interface StageRenderData {
   lastGesture: GestureEvent | null;
   /** Gesture held toward an action right now and how far along the ~0.5 s hold is (0..1), for a ring. */
   pendingGesture: { handId: number; gesture: ActionGesture; progress: number } | null;
+  /** Learn mode progress, null (or absent) when no song is being learned. */
+  learn?: LearnState | null;
 }
 
 export interface StageView {
@@ -531,4 +536,94 @@ export interface StageView {
   showError(err: AppError): void;
   toast(message: string): void;
   destroy(): void;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Learn (src/learn): guided songs on the lead voice
+// ---------------------------------------------------------------------------------------------
+
+/** wait: the song waits on every note until you play it. tempo: the notes move on at the song's tempo. */
+export type LearnMode = 'wait' | 'tempo';
+
+/** Best finished run of a song stored on this device. */
+export interface LearnBest {
+  /** 1..3 */
+  stars: number;
+  /** 0..1 */
+  accuracy: number;
+  bestStreak: number;
+  mode: LearnMode;
+}
+
+/** A song in the Learn list. */
+export interface SongInfo {
+  id: string;
+  title: string;
+  /** Composer or origin, e.g. "L. v. Beethoven", "Traditional". */
+  credit: string;
+  /** 1 easy, 2 medium, 3 hard. */
+  difficulty: 1 | 2 | 3;
+  /** Number of notes to play. */
+  length: number;
+  bpm: number;
+  /** Display key, e.g. "C major". */
+  keyName: string;
+  best: LearnBest | null;
+}
+
+/** One note of the song as it appears on the lead lanes right now. */
+export interface LearnNote {
+  /** MIDI note on the lanes (the song shifted by whole octaves to sit on them). */
+  midi: number;
+  /** Display name, e.g. "E4". */
+  note: string;
+  /** Index into StageRenderData.lanes.lead, -1 when no lane carries this note. */
+  laneIndex: number;
+  /** Length in beats. */
+  beats: number;
+}
+
+/**
+ * Live Learn mode state, one object mutated in place by the controller. Timestamps are
+ * performance.now() milliseconds (the TrackingFrame clock); 0 means "not yet".
+ */
+export interface LearnState {
+  songId: string;
+  title: string;
+  mode: LearnMode;
+  /** Index of the note to play now; equals `total` once the song is done. */
+  index: number;
+  total: number;
+  /** The note to play now, null when done. */
+  target: LearnNote | null;
+  /** The target followed by the next notes (up to 7 in all) for the ribbon. */
+  upcoming: readonly LearnNote[];
+  /** Notes played on the right pitch. */
+  hits: number;
+  /** Notes with a wrong note (or, in tempo mode, not played in time); at most one per note. */
+  misses: number;
+  /** Notes in a row played without a miss. */
+  streak: number;
+  bestStreak: number;
+  /** 0..1 share of the judged notes played without a miss (1 before the first note). */
+  accuracy: number;
+  /** 0..1 */
+  progress: number;
+  done: boolean;
+  /** 0..3 stars, final once done. */
+  stars: number;
+  /** The finished run beat the stored best for this song. */
+  newBest: boolean;
+  lastHitT: number;
+  lastMissT: number;
+  startedT: number;
+  finishedT: number;
+  /** Song tempo, ms per beat. */
+  msPerBeat: number;
+  /** Tempo mode: song clock in ms from the first note (negative during the count-in); 0 in wait mode. */
+  songMs: number;
+  /** Tempo mode: start of the target note on the song clock, ms. */
+  targetStartMs: number;
+  /** False when some song notes are on no lane (key, scale, octave or span changed after the start). */
+  onLanes: boolean;
 }
