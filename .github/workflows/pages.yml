@@ -1,0 +1,64 @@
+name: Deploy to GitHub Pages
+
+# Manual for now: run it from the Actions tab once Pages is enabled
+# (Settings -> Pages -> Source: GitHub Actions).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; never cancel one that is already publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache downloaded assets
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            public/models
+            public/samples
+          key: assets-${{ hashFiles('scripts/**', 'package-lock.json') }}
+
+      - name: Fetch runtime assets
+        run: npm run assets
+
+      # Relative base ('./' in vite.config.ts), so the site works under /<repository>/.
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v6.0.0
+
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1
