@@ -8,7 +8,7 @@
 Open the page, press **Start** and raise a hand. Your index fingertip picks the note: higher hand,
 higher note. Open your mouth to play it. The wider you open it, the louder it gets, the way a
 breath controller works. Bring in your second hand to shape the volume like a theremin, play a bass
-line or strum chords under the melody. More than 30 sampled and synthesized instruments, a live
+line or strum chords under the melody. More than 50 sampled and synthesized instruments, a live
 heads-up display that tracks every finger, and a musician's metrics strip that shows what you are
 playing as you play it.
 
@@ -39,11 +39,11 @@ and no analytics.
 
 - **Gesture instrument.** Fingertip height picks the pitch, mouth opening is the gate and the
   loudness. The lead voice follows your right hand, or your only hand.
-- **30+ instruments** in 11 families: pianos and keys, acoustic and electric guitars, basses,
+- **51 instruments** in 11 families: pianos and keys, acoustic and electric guitars, basses,
   strings, an opera choir, brass, woodwinds, mallets, organs, world instruments and synthesizers.
   Samples load on demand when you pick an instrument.
 - **Second-hand roles.** The left hand can control the volume (theremin style, the default), play
-  a bass line, play chords (raise 1 to 5 fingers for chords I to V of the key), or be ignored.
+  a bass line, play chords (finger patterns pick chords I to vii° of the key), or be ignored.
 - **One-tap presets.** Grand Stage, Opera Night, Theremin, Campfire and Night Groove set up the
   instrument, second-hand role, key, scale, beat and reverb in one tap.
 - **Hand gestures with configurable actions.** Hold a pose for half a second to trigger an
@@ -427,6 +427,6 @@ Third-party components bundled or served by the app:
 | --- | --- | --- |
 | [MediaPipe Tasks Vision](https://github.com/google-ai-edge/mediapipe) and its hand and face landmarker models | Hand and face tracking | Apache-2.0 |
 | [Tone.js](https://github.com/Tonejs/Tone.js) | Audio engine | MIT |
-| FluidR3_GM instrument samples, via [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) | Sampled instruments | <!-- SAMPLES-LICENSE: to be confirmed by the music module --> _to be confirmed_ |
+| FluidR3_GM SoundFont by Frank Wen and contributors, per-note renders via [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) | Sampled instruments (trimmed, looped, loudness-normalized, re-encoded; see [`public/samples/CREDITS.txt`](public/samples/CREDITS.txt)) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
 | [Space Grotesk](https://github.com/floriankarsten/space-grotesk) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) | Typefaces | SIL Open Font License 1.1 |
 | [nginx](https://nginx.org/) | Web server in the Docker image | BSD-2-Clause |
