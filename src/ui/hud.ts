@@ -238,8 +238,18 @@ export class HudRenderer {
       const hand = hands[i]!;
       const slot = this.slots[hand.id & 1]!;
       slot.seen = true;
-      // Chords mode: the left (or only) hand picks the degree, the right hand the style + volume.
-      const chordRole: Role | null = chordsMode ? (hands.length === 2 && i === 1 ? 'style' : 'degree') : null;
+      // Chords mode: the engine says which hand picks the degree and which shapes the chord;
+      // before it has, assume the left (or only) hand picks and the right hand shapes.
+      const m = data.metrics;
+      const chordRole: Role | null = !chordsMode
+        ? null
+        : m.styleHandId === hand.id
+          ? 'style'
+          : m.degreeHandId === hand.id
+            ? 'degree'
+            : hands.length === 2 && i === 1
+              ? 'style'
+              : 'degree';
       this.updateSlot(slot, hand, dt, sx, sy, ox, oy, data, settings, lead, bass, leadColor, bassColor, chordRole);
       const pend = data.pendingGesture;
       const target = pend && pend.handId === hand.id ? pend.progress : 0;

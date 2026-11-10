@@ -404,6 +404,10 @@ export interface MusicMetrics {
   chordStyle: string;
   /** True when the left wrist tilt swapped the chord's major/minor quality. */
   borrowed: boolean;
+  /** HandState.id of the hand picking the chord degree, null if none. */
+  degreeHandId: number | null;
+  /** HandState.id of the hand shaping the chord (style / volume / filter) in chords mode, null if none. */
+  styleHandId: number | null;
   /** The 7 diatonic chords of the current key for the degree guide, e.g. ["C","Dm","Em","F","G","Am","Bdim"]. */
   diatonic: string[];
   /** MIDI notes (integers) sounding right now, lead and bass, ascending. */

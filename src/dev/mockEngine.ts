@@ -107,6 +107,8 @@ export class MockEngine implements MusicEngine {
     expression: 0,
     handVolume: 1,
     volumeHandId: null,
+    degreeHandId: null,
+    styleHandId: null,
     levelDb: -Infinity,
     bpm: 96,
     bar: 0,
@@ -157,6 +159,8 @@ export class MockEngine implements MusicEngine {
     const vel = (): number => (s.trigger === 'mouth' ? Math.min(1, 0.3 + mouth) : 0.8);
 
     this.m.volumeHandId = null;
+    this.m.degreeHandId = null;
+    this.m.styleHandId = null;
     this.m.handVolume = 1;
     this.m.degree = 0;
     this.m.chordStyle = '';
@@ -169,12 +173,14 @@ export class MockEngine implements MusicEngine {
       if (styler) {
         this.m.handVolume = this.heightTo01(styler.indexTip.y);
         this.m.volumeHandId = styler.id;
+        this.m.styleHandId = styler.id;
         this.m.chordStyle = STYLES[Math.max(1, Math.min(5, styler.fingersUp)) - 1]!;
       }
       if (picker) {
         const f = picker.fingers;
         const deg = f[0] && f[1] && f[4] && !f[2] ? 7 : f[1] && f[4] && !f[2] ? 6 : Math.max(1, Math.min(5, picker.fingersUp));
         this.m.degree = deg;
+        this.m.degreeHandId = picker.id;
         this.m.borrowed = Math.abs(picker.roll) > 0.5 && s.tiltControls;
         const chord = this.m.diatonic[deg - 1] ?? '';
         const g = gateOpen(picker);
