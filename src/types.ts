@@ -140,8 +140,16 @@ export interface Tracker {
 // Music (src/music)
 // ---------------------------------------------------------------------------------------------
 
-/** lead = the right hand (or the only hand); bass = the left hand when two hands are up. */
+/** lead = the right hand (or the only hand); bass = the left hand when leftHand = 'bass'. */
 export type VoiceId = 'lead' | 'bass';
+
+/**
+ * What a second (left) hand does:
+ *  - 'volume': theremin style, its height sets the loudness (top = loud, bottom = silent)
+ *  - 'bass':   it plays the bass voice with its own instrument
+ *  - 'off':    ignored, only the rightmost hand plays
+ */
+export type LeftHandRole = 'volume' | 'bass' | 'off';
 
 export type InstrumentFamily =
   | 'keys'
@@ -202,10 +210,10 @@ export type TriggerMode = 'mouth' | 'pinch' | 'always';
 export interface Settings {
   /** InstrumentDef id played by the lead voice (right hand / only hand). */
   lead: string;
-  /** InstrumentDef id played by the bass voice (left hand). */
+  /** InstrumentDef id played by the bass voice (left hand, when leftHand = 'bass'). */
   bass: string;
-  /** When true, a second hand on the left plays the bass voice. */
-  twoHands: boolean;
+  /** Role of a second hand on the left. */
+  leftHand: LeftHandRole;
   /** Root key 0..11 (0 = C). */
   key: number;
   scale: ScaleId;
@@ -285,6 +293,39 @@ export interface Recording {
   durationMs: number;
 }
 
+/** Live numbers for the musician's metrics strip. Updated by every `update()`. */
+export interface MusicMetrics {
+  /** Key root as text, e.g. "C", "F#", "Bb". */
+  keyName: string;
+  /** Scale display name, e.g. "Major pentatonic". */
+  scaleName: string;
+  /** Chord implied by the sounding + recent notes, e.g. "Am7", "C5", "" when nothing played yet. */
+  chord: string;
+  /** Roman numeral of that chord in the key, e.g. "vi", "" when not diatonic / unknown. */
+  roman: string;
+  /** MIDI notes (integers) sounding right now, lead and bass, ascending. */
+  activeMidi: number[];
+  /** Overall expression 0..1 actually applied (mouth openness x hand volume). */
+  expression: number;
+  /** Left-hand volume 0..1 (1 when leftHand is not 'volume' or no left hand yet). */
+  handVolume: number;
+  /** HandState.id of the hand acting as the volume control, null if none. */
+  volumeHandId: number | null;
+  /** Output level in dBFS, -Infinity..0, for a numeric readout. */
+  levelDb: number;
+  /** Groove tempo. */
+  bpm: number;
+  /** Groove position, 1-based; both 0 when the groove is off. */
+  bar: number;
+  beat: number;
+  /** Notes started since the engine was unlocked. */
+  notesPlayed: number;
+  /** Notes per minute over the last ~10 s. */
+  notesPerMinute: number;
+  /** Milliseconds since the engine was unlocked. */
+  sessionMs: number;
+}
+
 export interface MusicEngine {
   readonly instruments: readonly InstrumentDef[];
   readonly scales: readonly ScaleDef[];
@@ -297,6 +338,8 @@ export interface MusicEngine {
   update(frame: TrackingFrame): VoiceState[];
   /** Note lanes for a voice, top to bottom. */
   lanes(voice: VoiceId): Lane[];
+  /** Live metrics for the HUD strip. Returns the same object instance each call (mutated). */
+  metrics(): MusicMetrics;
   /** Subscribe to instrument loading; returns an unsubscribe function. */
   onLoadState(cb: (s: InstrumentLoadState) => void): () => void;
   /** Output RMS level 0..1 for visuals. */
@@ -338,6 +381,17 @@ export interface HudStatus {
   face: boolean;
 }
 
+/** Everything the stage draws in one animation frame. */
+export interface StageRenderData {
+  /** Latest tracking result, null until tracking runs. */
+  frame: TrackingFrame | null;
+  voices: readonly VoiceState[];
+  lanes: { lead: readonly Lane[]; bass: readonly Lane[] };
+  audio: { level: number; spectrum: Float32Array };
+  metrics: MusicMetrics;
+  status: HudStatus;
+}
+
 export interface StageView {
   readonly el: HTMLElement;
   /** The <video> the camera stream is attached to (muted, playsinline, mirrored by CSS). */
@@ -349,14 +403,8 @@ export interface StageView {
   setBootProgress(p: LoadProgress | null): void;
   setLoadState(s: InstrumentLoadState): void;
   setRecording(on: boolean): void;
-  /** Called once per animation frame with the latest data. frame is null until tracking runs. */
-  render(
-    frame: TrackingFrame | null,
-    voices: readonly VoiceState[],
-    lanes: { lead: readonly Lane[]; bass: readonly Lane[] },
-    audio: { level: number; spectrum: Float32Array },
-    status: HudStatus,
-  ): void;
+  /** Called once per animation frame with the latest data. */
+  render(data: StageRenderData): void;
   showError(err: AppError): void;
   toast(message: string): void;
   destroy(): void;

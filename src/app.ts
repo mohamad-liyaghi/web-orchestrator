@@ -192,13 +192,14 @@ export class App {
       hands: frame?.hands.length ?? 0,
       face: !!frame?.face,
     };
-    this.stage.render(
+    this.stage.render({
       frame,
-      this.voices,
-      { lead: this.engine.lanes('lead'), bass: this.engine.lanes('bass') },
-      { level: this.engine.level(), spectrum: this.engine.spectrum() },
+      voices: this.voices,
+      lanes: { lead: this.engine.lanes('lead'), bass: this.engine.lanes('bass') },
+      audio: { level: this.engine.level(), spectrum: this.engine.spectrum() },
+      metrics: this.engine.metrics(),
       status,
-    );
+    });
     this.raf = requestAnimationFrame(this.loop);
   };
 

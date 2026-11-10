@@ -1,10 +1,10 @@
-import type { ScaleId, Settings, TriggerMode } from './types';
+import type { LeftHandRole, ScaleId, Settings, TriggerMode } from './types';
 import { clamp } from './geometry';
 
 export const DEFAULT_SETTINGS: Settings = {
   lead: 'grand-piano',
   bass: 'electric-bass',
-  twoHands: true,
+  leftHand: 'volume',
   key: 0,
   scale: 'major-pentatonic',
   octave: 0,
@@ -33,6 +33,7 @@ const SCALES: readonly ScaleId[] = [
   'continuous',
 ];
 const TRIGGERS: readonly TriggerMode[] = ['mouth', 'pinch', 'always'];
+const LEFT_HAND: readonly LeftHandRole[] = ['volume', 'bass', 'off'];
 
 const num = (v: unknown, fallback: number, lo: number, hi: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : fallback;
@@ -47,7 +48,7 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
   return {
     lead: inst(r.lead, d.lead),
     bass: inst(r.bass, d.bass),
-    twoHands: bool(r.twoHands, d.twoHands),
+    leftHand: LEFT_HAND.includes(r.leftHand as LeftHandRole) ? (r.leftHand as LeftHandRole) : d.leftHand,
     key: Math.round(num(r.key, d.key, 0, 11)),
     scale: SCALES.includes(r.scale as ScaleId) ? (r.scale as ScaleId) : d.scale,
     octave: Math.round(num(r.octave, d.octave, -2, 2)),
