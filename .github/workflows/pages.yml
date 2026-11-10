@@ -1,8 +1,11 @@
 name: Deploy to GitHub Pages
 
-# Manual for now: run it from the Actions tab once Pages is enabled
-# (Settings -> Pages -> Source: GitHub Actions).
+# Publishes main to GitHub Pages (Settings -> Pages -> Source: GitHub Actions). Pushes deploy only
+# once the repository variable PAGES_ENABLED is "true" (gh variable set PAGES_ENABLED --body true),
+# so main stays green while Pages is off; a manual run always tries.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +21,7 @@ concurrency:
 jobs:
   build:
     name: Build site
+    if: ${{ vars.PAGES_ENABLED == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -30,13 +34,13 @@ jobs:
 
       - run: npm ci
 
-      - name: Cache downloaded assets
+      # Only the downloaded models are cached: public/samples is committed, and restoring an old
+      # copy over the checkout would ship stale samples.
+      - name: Cache downloaded models
         uses: actions/cache@v6.1.0
         with:
-          path: |
-            public/models
-            public/samples
-          key: assets-${{ hashFiles('scripts/**', 'package-lock.json') }}
+          path: public/models
+          key: models-${{ hashFiles('scripts/assets/models.mjs', 'package-lock.json') }}
 
       - name: Fetch runtime assets
         run: npm run assets

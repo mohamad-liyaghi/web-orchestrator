@@ -242,12 +242,14 @@ models and samples are copied as-is to `dist/mediapipe/`, `dist/models/` and `di
 GitHub Pages serves over HTTPS, so the camera works there without any certificate setup. The
 build uses a relative base path, so it runs under `https://<user>.github.io/<repository>/`.
 
-1. In the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**.
-2. Open **Actions → Deploy to GitHub Pages → Run workflow**.
+1. In the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**
+   (GitHub Pages needs a public repository, or a paid plan for a private one).
+2. Turn on deploys from `main`: `gh variable set PAGES_ENABLED --body true`.
+3. Push to `main`, or open **Actions → Deploy to GitHub Pages → Run workflow**.
 
 The workflow ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)) runs `npm ci`,
-`npm run assets` and `npm run build`, then publishes `dist/`. It only runs when started by hand,
-so nothing is deployed before Pages is enabled.
+`npm run assets` and `npm run build`, then publishes `dist/`. Pushes only deploy once
+`PAGES_ENABLED` is `true`, so `main` stays green while Pages is off.
 
 ## Deployment with Docker
 
