@@ -1,0 +1,7 @@
+# Types missing from the stock mime.types.
+types {
+    text/javascript              mjs;
+    application/octet-stream     task tflite;
+    application/manifest+json    webmanifest;
+    application/json             map;
+}
