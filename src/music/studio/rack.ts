@@ -264,8 +264,8 @@ class Chorus {
   set(amount: number, t: number): void {
     const was = this.amount;
     this.amount = amount;
-    const gen = ++this.gen;
     if (amount > 0) {
+      this.gen++;
       if (!this.wired) {
         const lfo = this.ctx.createOscillator();
         lfo.frequency.value = 0.8;
@@ -283,6 +283,7 @@ class Chorus {
       (was > 0 ? ramp : fade)(this.send.gain, 0.65 * amount, t);
       fade(this.dry.gain, 1 - 0.3 * amount, t);
     } else if (was > 0) {
+      const gen = ++this.gen;
       fade(this.send.gain, 0, t);
       fade(this.dry.gain, 1, t);
       this.host.later(FADE * 1000 * 3 + 60, () => {
@@ -314,12 +315,23 @@ class Chorus {
   }
 }
 
-/** Tempo-synced feedback delay with a darkening filter in the loop. */
+/** One delay line with a darkening filter in its feedback loop. */
+interface Line {
+  delay: DelayNode;
+  tone: BiquadFilterNode;
+  fb: GainNode;
+  out: GainNode;
+}
+
+/**
+ * Tempo-synced feedback delay. A new delay time never sweeps the line (that bends the pitch of the
+ * echoes): two lines listen to the send all the time, the silent one jumps to the new time and the
+ * two crossfade.
+ */
 class Echo {
   readonly send: GainNode;
-  private readonly line: DelayNode;
-  private readonly tone: BiquadFilterNode;
-  private readonly fb: GainNode;
+  private readonly lines: [Line, Line];
+  private current = 0;
   private wired = false;
   private gen = 0;
   private amount = 0;
@@ -333,16 +345,23 @@ class Echo {
     private readonly output: AudioNode,
   ) {
     this.send = gain(ctx, 0);
-    this.line = ctx.createDelay(MAX_DELAY);
-    this.tone = ctx.createBiquadFilter();
-    this.tone.type = 'lowpass';
-    this.tone.frequency.value = 3200;
-    this.tone.Q.value = 0.5;
-    this.fb = gain(ctx, 0.3);
-    this.send.connect(this.line);
-    this.line.connect(this.tone);
-    this.tone.connect(this.fb);
-    this.fb.connect(this.line);
+    const line = (on: boolean): Line => {
+      const delay = ctx.createDelay(MAX_DELAY);
+      delay.delayTime.value = this.seconds;
+      const tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      tone.frequency.value = 3200;
+      tone.Q.value = 0.5;
+      const fb = gain(ctx, on ? this.feedback : 0);
+      const out = gain(ctx, on ? 1 : 0);
+      this.send.connect(delay);
+      delay.connect(tone);
+      tone.connect(fb);
+      fb.connect(delay);
+      tone.connect(out);
+      return { delay, tone, fb, out };
+    };
+    this.lines = [line(true), line(false)];
   }
 
   get processing(): boolean {
@@ -358,24 +377,40 @@ class Echo {
     const was = this.amount;
     this.amount = amount;
     seconds = Math.max(0.02, Math.min(MAX_DELAY - 0.01, seconds));
-    if (seconds !== this.seconds || !this.wired) {
-      if (this.wired) ramp(this.line.delayTime, seconds, t, 0.06);
-      else this.line.delayTime.setValueAtTime(seconds, t);
+    if (Math.abs(seconds - this.seconds) > 1e-6) {
       this.seconds = seconds;
+      if (this.wired && was > 0) {
+        // Swap lines: the silent one already holds the input history, so its first echo is right.
+        const old = this.lines[this.current]!;
+        this.current = 1 - this.current;
+        const next = this.lines[this.current]!;
+        next.delay.delayTime.cancelScheduledValues(t);
+        next.delay.delayTime.setValueAtTime(seconds, t);
+        fade(next.fb.gain, this.feedback, t, 0.08);
+        fade(next.out.gain, 1, t, 0.08);
+        fade(old.fb.gain, 0, t, 0.08);
+        fade(old.out.gain, 0, t, 0.08);
+      } else {
+        for (const l of this.lines) {
+          l.delay.delayTime.cancelScheduledValues(t);
+          l.delay.delayTime.setValueAtTime(seconds, t);
+        }
+      }
     }
     if (feedback !== this.feedback) {
       this.feedback = feedback;
-      ramp(this.fb.gain, feedback, t);
+      ramp(this.lines[this.current]!.fb.gain, feedback, t);
     }
-    const gen = ++this.gen;
     if (amount > 0) {
+      this.gen++;
       if (!this.wired) {
         this.input.connect(this.send);
-        this.tone.connect(this.output);
+        for (const l of this.lines) l.out.connect(this.output);
         this.wired = true;
       }
       (was > 0 ? ramp : fade)(this.send.gain, 0.55 * amount, t);
     } else if (was > 0) {
+      const gen = ++this.gen;
       fade(this.send.gain, 0, t);
       // Disconnect once the echoes have died away (-60 dB).
       const fbk = Math.max(0.05, Math.min(0.9, this.feedback));
@@ -389,14 +424,15 @@ class Echo {
 
   private unwire(): void {
     safeDisconnect(this.input, this.send);
-    safeDisconnect(this.tone, this.output);
+    for (const l of this.lines) safeDisconnect(l.out, this.output);
     this.wired = false;
   }
 
   dispose(): void {
     this.gen++;
     this.unwire();
-    for (const n of [this.send, this.line, this.tone, this.fb]) safeDisconnect(n);
+    safeDisconnect(this.send);
+    for (const l of this.lines) for (const n of [l.delay, l.tone, l.fb, l.out]) safeDisconnect(n);
   }
 }
 
@@ -443,11 +479,12 @@ class Reverb {
   setAmount(amount: number, t: number): void {
     const was = this.amount;
     this.amount = amount;
-    const gen = ++this.gen;
     if (amount > 0) {
+      this.gen++;
       this.wire();
       (was > 0 ? ramp : fade)(this.send.gain, amount * 0.9, t, was > 0 ? 0.05 : FADE);
     } else if (was > 0) {
+      const gen = ++this.gen;
       fade(this.send.gain, 0, t);
       const tail = this.slot ? this.slot.seconds : 3;
       this.host.later(tail * 1000 + 300, () => {
