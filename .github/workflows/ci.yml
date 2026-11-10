@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Cache downloaded assets
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            public/models
+            public/samples
+          key: assets-${{ hashFiles('scripts/**', 'package-lock.json') }}
+
+      - name: Fetch runtime assets
+        run: npm run assets
+
+      - name: Build
+        run: npm run build
+
+      - name: Bundle size
+        run: du -sh dist dist/* | sort -h
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      IMAGE_TAG: ci
+      HTTPS_PORT: 18443
+      HTTP_PORT: 18080
+      PUBLIC_HOST: localhost
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: web-orchestrator:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start with docker compose
+        run: |
+          docker compose -p orchestrator-ci up -d --no-build --wait --wait-timeout 60
+          docker compose -p orchestrator-ci ps
+
+      - name: Smoke test
+        run: deploy/smoke-test.sh "https://localhost:${HTTPS_PORT}" "http://127.0.0.1:${HTTP_PORT}"
+
+      - name: Restart cleanly
+        run: |
+          docker compose -p orchestrator-ci restart
+          docker compose -p orchestrator-ci up -d --no-build --wait --wait-timeout 60
+          curl -skf "https://localhost:${HTTPS_PORT}/healthz"
+
+      - name: Image size
+        run: docker image ls web-orchestrator:ci
+
+      - name: Container logs
+        if: always()
+        run: docker compose -p orchestrator-ci logs
+
+      - name: Stop
+        if: always()
+        run: docker compose -p orchestrator-ci down -v
