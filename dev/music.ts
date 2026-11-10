@@ -243,7 +243,7 @@ async function selfTest(): Promise<Report> {
   tracker?.dispose();
   tracker = null;
   await engine.unlock();
-  settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, trigger: 'always', leftHand: 'off', groove: false, reverb: 0.2 };
+  settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, mode: 'melody', trigger: 'always', leftHand: 'off', groove: false, reverb: 0.2 };
   engine.configure(settings);
   engine.setPlayZone({ y0: 0.1, y1: 0.86 });
 
@@ -464,7 +464,7 @@ window.__musicSelfTest = selfTest;
 /** Plays one instrument for `ms` and reports the peak level (for level balancing). */
 (window as unknown as { __musicProbe: unknown }).__musicProbe = async (ids: string[], ms = 600) => {
   await engine.unlock();
-  settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, trigger: 'always', leftHand: 'off', reverb: 0 };
+  settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, mode: 'melody', trigger: 'always', leftHand: 'off', reverb: 0 };
   engine.configure(settings);
   engine.setPlayZone({ y0: 0.1, y1: 0.86 });
   const out: Record<string, number> = {};
