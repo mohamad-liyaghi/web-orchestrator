@@ -1,0 +1,12 @@
+node_modules/
+dist/
+# Downloaded/copied at build time by scripts/fetch-assets.mjs
+public/models/
+public/mediapipe/
+public/samples/
+.vite/
+*.log
+.DS_Store
+.env
+.env.*
+deploy/certs/

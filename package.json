@@ -1,0 +1,26 @@
+{
+  "name": "web-orchestrator",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Play a whole orchestra in the browser with your hands and your mouth. Camera tracking runs on-device.",
+  "type": "module",
+  "author": "Mohamad Liyaghi",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "assets": "node scripts/fetch-assets.mjs",
+    "dev": "node scripts/fetch-assets.mjs && vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.35",
+    "tone": "15.1.22"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.7"
+  }
+}
