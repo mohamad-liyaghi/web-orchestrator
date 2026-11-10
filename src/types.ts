@@ -70,6 +70,9 @@ export interface LoadProgress {
 /** The user's anatomical hand. In the mirrored view the right hand appears on the right. */
 export type HandSide = 'left' | 'right';
 
+/** Static hand pose, recognized every frame and debounced (stable for ~120 ms before it changes). */
+export type HandGesture = 'none' | 'open' | 'fist' | 'point' | 'peace' | 'thumbs-up' | 'rock';
+
 export interface HandState {
   /** Stable slot id (0 or 1), kept while the hand stays tracked. Key animations on it. */
   id: number;
@@ -88,6 +91,9 @@ export interface HandState {
   pinching: boolean;
   /** Number of extended fingers, 0..5. */
   fingersUp: number;
+  /** Debounced pose: fist (0 fingers), open (5), point (index), peace (index+middle),
+   *  thumbs-up (only the thumb, pointing up), rock (index+pinky), none otherwise. */
+  gesture: HandGesture;
   /** Detection confidence 0..1. */
   score: number;
   /** Milliseconds this hand has been continuously tracked (for fade-in animations). */
@@ -113,6 +119,32 @@ export interface FaceState {
   mouthCenter: Vec2;
 }
 
+/** Why the picture is (not) ideal for tracking, most important problem first. */
+export type FrameVerdict =
+  | 'great'
+  | 'good'
+  | 'no-hands'
+  | 'too-dark'
+  | 'too-bright'
+  | 'too-far'
+  | 'too-close'
+  | 'hand-cut-off'
+  | 'unstable'
+  | 'low-fps';
+
+/** Live framing / tracking quality, the "is this the best frame?" flag for the HUD. */
+export interface FrameQuality {
+  /** 0..1 overall quality. */
+  score: number;
+  verdict: FrameVerdict;
+  /** True when the framing is ideal for playing (verdict 'great'). The UI also requires a face in mouth mode. */
+  ideal: boolean;
+  /** 0..1 mean brightness of the picture (sampled a few times per second on a tiny canvas). */
+  brightness: number;
+  /** Average hand box height / frame height (0 when no hands): distance cue. */
+  handScale: number;
+}
+
 export interface TrackingFrame {
   /** performance.now() when this frame was processed. */
   t: number;
@@ -121,6 +153,7 @@ export interface TrackingFrame {
   face: FaceState | null;
   /** Tracking throughput (frames per second), smoothed. */
   fps: number;
+  quality: FrameQuality;
   /** Intrinsic camera frame size in pixels. */
   video: { width: number; height: number };
 }
@@ -211,6 +244,26 @@ export interface ScaleDef {
 /** What opens the "gate" (makes sound): mouth open, thumb-index pinch, or any visible hand. */
 export type TriggerMode = 'mouth' | 'pinch' | 'always';
 
+/** Gestures the user can bind to an action in the settings. */
+export type ActionGesture = 'fist' | 'peace' | 'thumbs-up' | 'rock';
+
+/**
+ * What a bound gesture does. 'mute' is held: the voice of the hand making the gesture is silent
+ * while the gesture lasts (handled by the music engine). Every other action fires once when the
+ * gesture has been held ~0.5 s, then waits for a cooldown (handled by app.ts).
+ */
+export type GestureAction =
+  | 'none'
+  | 'mute'
+  | 'octave-up'
+  | 'octave-down'
+  | 'next-instrument'
+  | 'prev-instrument'
+  | 'next-preset'
+  | 'next-scale'
+  | 'toggle-groove'
+  | 'toggle-record';
+
 export interface Settings {
   /** InstrumentDef id played by the lead voice (right hand / only hand). */
   lead: string;
@@ -242,6 +295,10 @@ export interface Settings {
   lanes: boolean;
   /** Low-power mode for weak devices: fewer tracking frames, no particles, lower canvas resolution. */
   lowPower: boolean;
+  /** Master switch for gesture actions. */
+  gesturesEnabled: boolean;
+  /** Action bound to each gesture. Left-hand gestures are ignored in 'chords' mode (finger counts pick chords). */
+  gestures: Record<ActionGesture, GestureAction>;
 }
 
 export interface VoiceState {
@@ -389,6 +446,16 @@ export interface HudStatus {
   face: boolean;
 }
 
+/** A gesture action that just fired, for a short HUD flash ("✌ Next instrument: Violin"). */
+export interface GestureEvent {
+  gesture: ActionGesture;
+  action: GestureAction;
+  /** Human text describing the result. */
+  label: string;
+  /** performance.now() when it fired. */
+  t: number;
+}
+
 /** Everything the stage draws in one animation frame. */
 export interface StageRenderData {
   /** Latest tracking result, null until tracking runs. */
@@ -398,6 +465,10 @@ export interface StageRenderData {
   audio: { level: number; spectrum: Float32Array };
   metrics: MusicMetrics;
   status: HudStatus;
+  /** Most recent gesture action (stays set; compare `t` to animate), null before the first one. */
+  lastGesture: GestureEvent | null;
+  /** Gesture held toward an action right now and how far along the ~0.5 s hold is (0..1), for a ring. */
+  pendingGesture: { handId: number; gesture: ActionGesture; progress: number } | null;
 }
 
 export interface StageView {

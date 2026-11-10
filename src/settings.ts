@@ -1,4 +1,4 @@
-import type { LeftHandRole, ScaleId, Settings, TriggerMode } from './types';
+import type { ActionGesture, GestureAction, LeftHandRole, ScaleId, Settings, TriggerMode } from './types';
 import { clamp } from './geometry';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -18,7 +18,28 @@ export const DEFAULT_SETTINGS: Settings = {
   skeleton: true,
   lanes: true,
   lowPower: false,
+  gesturesEnabled: true,
+  gestures: {
+    fist: 'mute',
+    peace: 'next-instrument',
+    'thumbs-up': 'toggle-groove',
+    rock: 'octave-up',
+  },
 };
+
+export const ACTION_GESTURES: readonly ActionGesture[] = ['fist', 'peace', 'thumbs-up', 'rock'];
+export const GESTURE_ACTIONS: readonly GestureAction[] = [
+  'none',
+  'mute',
+  'octave-up',
+  'octave-down',
+  'next-instrument',
+  'prev-instrument',
+  'next-preset',
+  'next-scale',
+  'toggle-groove',
+  'toggle-record',
+];
 
 const STORAGE_KEY = 'orchestrator.settings.v1';
 const SCALES: readonly ScaleId[] = [
@@ -64,7 +85,19 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
     skeleton: bool(r.skeleton, d.skeleton),
     lanes: bool(r.lanes, d.lanes),
     lowPower: bool(r.lowPower, d.lowPower),
+    gesturesEnabled: bool(r.gesturesEnabled, d.gesturesEnabled),
+    gestures: sanitizeGestures(r.gestures),
   };
+}
+
+function sanitizeGestures(raw: unknown): Settings['gestures'] {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_SETTINGS.gestures };
+  for (const g of ACTION_GESTURES) {
+    const v = r[g];
+    if (GESTURE_ACTIONS.includes(v as GestureAction)) out[g] = v as GestureAction;
+  }
+  return out;
 }
 
 export function loadSettings(instrumentIds: readonly string[]): Settings {
