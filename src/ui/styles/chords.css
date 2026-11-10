@@ -344,3 +344,26 @@
     justify-content: center;
   }
 }
+
+/* Landscape phones: the metrics strip already shows the chord, keep only a slim degree guide. */
+@media (max-height: 500px) {
+  .chord-deck {
+    padding: 4px 6px;
+  }
+
+  .cd-big,
+  .cd-guide-wrap > .m-label {
+    display: none;
+  }
+
+  .cd-cell {
+    flex-direction: row;
+    justify-content: center;
+    gap: 6px;
+    padding: 3px 4px;
+  }
+
+  .cd-c-roman {
+    font-size: 0.9rem;
+  }
+}
