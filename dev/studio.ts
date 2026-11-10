@@ -22,12 +22,17 @@ const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 const dbfs = (v: number): number => (v > 0 ? 20 * Math.log10(v) : -Infinity);
 
 const errors: string[] = [];
+/** Which test is running (tags the first occurrence of a console message). */
+let phase = '';
 window.addEventListener('error', (e) => errors.push(String(e.message)));
 window.addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
 for (const k of ['warn', 'error'] as const) {
   const orig = console[k].bind(console);
   console[k] = (...args: unknown[]) => {
-    errors.push(`${k}: ${args.map(String).join(' ')}`);
+    const msg = `${k}: ${args.map(String).join(' ')}`;
+    // First time a message shows up, keep where it came from.
+    if (!errors.some((e) => e.startsWith(msg))) errors.push(`${msg} [${phase}] @ ${(new Error().stack ?? '').split('\n').slice(2, 9).join(' | ')}`);
+    else errors.push(msg);
     orig(...args);
   };
 }
@@ -629,6 +634,7 @@ async function engineTests(): Promise<Report> {
   engine.setPlayZone({ y0: 0.1, y1: 0.86 });
 
   // 1. Tuning and transpose: measured pitch of a synth and a sampled instrument.
+  phase = 'engine 1';
   {
     const dry: Partial<Settings> = { reverb: 0, delay: 0, chorus: 0 };
     configure(dry);
@@ -685,6 +691,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 2. MIDI out / looper see the written note; the sound is transposed (tap check).
+  phase = 'engine 2';
   {
     const notes: number[] = [];
     configure({ transpose: 5 });
@@ -707,6 +714,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 3. Time signatures: bar:beat readout and the beat's bar length.
+  phase = 'engine 3';
   {
     const rows: Report = {};
     const calls: { s: number; off: number }[] = [];
@@ -769,6 +777,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 4. Swing: offsets the beat and the arpeggiator get (in sixteenths and ms at 120 BPM).
+  phase = 'engine 4';
   {
     const rows: Report[] = [];
     const g = inner.groove;
@@ -815,6 +824,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 5. Delay time follows the tempo.
+  phase = 'engine 5';
   {
     const rows: Report[] = [];
     for (const [tempo, delayTime] of [[100, '1/4'], [120, '1/8d'], [150, '1/16t']] as const) {
@@ -828,6 +838,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 6. Velocity curves: mouth openness -> dynamics.
+  phase = 'engine 6';
   {
     const rows: Report = {};
     for (const curve of VELOCITY_CURVES) {
@@ -839,6 +850,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 7. Attack and release scaling (grand piano): level 60 ms after the onset, time to -40 dB after release.
+  phase = 'engine 7';
   {
     configure({ reverb: 0, delay: 0, trigger: 'mouth' });
     await setLead('grand-piano');
@@ -870,6 +882,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 8. Count-in: looper take from silence, with and without the bar of clicks (3/4).
+  phase = 'engine 8';
   {
     const rows: Report = {};
     for (const countIn of [true, false]) {
@@ -894,6 +907,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 9. Click volume on the metronome beat.
+  phase = 'engine 9';
   {
     const rows: Report = {};
     for (const clickVolume of [0, 0.3, 0.6, 1]) {
@@ -907,6 +921,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 10. Sweep every studio setting through its range while lead, bass, chords and the beat play.
+  phase = 'engine 10';
   {
     await setLead('grand-piano');
     configure({ trigger: 'mouth', leftHand: 'bass', bass: 'electric-bass', groove: true, beat: 'pop', reverb: 0.35 });
@@ -965,6 +980,7 @@ async function engineTests(): Promise<Report> {
   }
 
   // 11. Low power forces chorus / delay / width off; neutral settings disconnect everything.
+  phase = 'engine 11';
   {
     configure({ chorus: 0.6, delay: 0.5, width: 0.9, eqLow: 3, lowPower: true });
     await sleep(400);

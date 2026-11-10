@@ -7,7 +7,7 @@
  * the beat is immune to main-thread hiccups (camera inference) even with the tiny context
  * lookAhead the instruments need for low latency.
  */
-import { Filter, Gain, MembraneSynth, NoiseSynth, PolySynth, Synth } from 'tone/build/esm/classes.js';
+import { Filter, Gain, MembraneSynth, NoiseSynth, Synth } from 'tone/build/esm/classes.js';
 import type { BaseContext } from 'tone/build/esm/core/context/BaseContext.js';
 import type { InputNode } from 'tone/build/esm/core/context/ToneAudioNode.js';
 import type { BeatStyle, TimeSignature } from '../types';
@@ -158,6 +158,9 @@ function buildPattern(style: BeatStyle, base: Pattern, meter: Meter): Pattern {
   return { ...base, kick, snare, hat, bass };
 }
 
+/** Pad voices: one per chord tone (two in low-power mode). */
+const PAD_VOICES = 3;
+
 export class Groove {
   readonly output = new Gain(0);
   private readonly kick = new MembraneSynth({
@@ -189,7 +192,12 @@ export class Groove {
     volume: -8,
   });
   private readonly padFilter = new Filter({ type: 'lowpass', frequency: 1100, Q: 0.4 });
-  private pad: PolySynth<Synth>;
+  /**
+   * The pad: one fixed monophonic voice per chord tone. A chord change moves each voice to its new
+   * note at an exact audio time, so the pad can never run out of voices (a PolySynth defers future
+   * attacks to a timer and could drop notes when chords change fast).
+   */
+  private readonly pad: Synth[] = [];
   private running = false;
   private lastPadKey = '';
   private lowPower = false;
@@ -200,6 +208,8 @@ export class Groove {
   private clickLevel = 1;
   /** Latest hit time: Tone's synths reject a start before the previous one. */
   private lastAt = 0;
+  /** Audio time of the last pad chord (pad events must move forward in time). */
+  private lastPadAt = 0;
   /** The player's own chords cover the harmony (chords mode): drums only. */
   private harmony = true;
 
@@ -208,7 +218,15 @@ export class Groove {
     private readonly chord: () => GrooveChord,
     destination: InputNode,
   ) {
-    this.pad = this.makePad(12);
+    for (let i = 0; i < PAD_VOICES; i++) {
+      const v = new Synth({
+        oscillator: { type: 'fattriangle', count: 2, spread: 14 },
+        envelope: { attack: 0.35, decay: 0.4, sustain: 0.7, release: 0.8 },
+        volume: -17,
+      });
+      v.connect(this.padFilter);
+      this.pad.push(v);
+    }
     this.kick.connect(this.output);
     this.snare.chain(this.snareFilter, this.output);
     this.hat.chain(this.hatFilter, this.output);
@@ -264,23 +282,21 @@ export class Groove {
     this.style = next;
     this.hatFilter.frequency.setValueAtTime(next.hatTone, this.ctx.currentTime);
     if (this.running) this.output.gain.setTargetAtTime(next.level, this.ctx.currentTime, 0.1);
-    if (!next.pad) this.pad.releaseAll(this.ctx.currentTime);
+    if (!next.pad) this.releasePad(this.ctx.currentTime);
   }
 
   setHarmony(on: boolean): void {
     if (on === this.harmony) return;
     this.harmony = on;
-    if (!on) this.pad.releaseAll(this.ctx.currentTime);
+    if (!on) this.releasePad(this.ctx.currentTime);
     this.lastPadKey = '';
   }
 
   setLowPower(on: boolean): void {
     if (on === this.lowPower) return;
     this.lowPower = on;
-    const old = this.pad;
-    old.releaseAll(this.ctx.currentTime);
-    window.setTimeout(() => old.dispose(), 1500);
-    this.pad = this.makePad(on ? 6 : 12);
+    // Low power plays two chord tones: the third voice lets go.
+    if (on) this.releasePad(this.ctx.currentTime, PAD_VOICES - 1);
   }
 
   /** Fade in. The engine starts the Transport. */
@@ -300,7 +316,7 @@ export class Groove {
     const now = this.ctx.currentTime;
     this.output.gain.cancelScheduledValues(now);
     this.output.gain.setTargetAtTime(0, now, 0.12);
-    this.pad.releaseAll(now + 0.3);
+    this.releasePad(now + 0.3);
   }
 
   /** Immediately silent (panic). */
@@ -309,25 +325,20 @@ export class Groove {
     const now = this.ctx.currentTime;
     this.output.gain.cancelScheduledValues(now);
     this.output.gain.setValueAtTime(0, now);
-    this.pad.releaseAll(now);
+    this.releasePad(now);
     this.bass.triggerRelease(now);
   }
 
   dispose(): void {
-    for (const n of [this.kick, this.snare, this.snareFilter, this.hat, this.hatFilter, this.bass, this.click, this.pad, this.padFilter, this.output]) {
+    for (const n of [this.kick, this.snare, this.snareFilter, this.hat, this.hatFilter, this.bass, this.click, ...this.pad, this.padFilter, this.output]) {
       n.dispose();
     }
   }
 
-  private makePad(voices: number): PolySynth<Synth> {
-    const pad = new PolySynth(Synth, {
-      oscillator: { type: 'fattriangle', count: 2, spread: 14 },
-      envelope: { attack: 0.35, decay: 0.4, sustain: 0.7, release: 0.8 },
-      volume: -17,
-    });
-    pad.maxPolyphony = voices;
-    pad.connect(this.padFilter);
-    return pad;
+  /** Releases pad voices from index `from` on, never before a chord already scheduled ahead. */
+  private releasePad(time: number, from = 0): void {
+    const at = Math.max(time, this.lastPadAt + 0.005);
+    for (let i = from; i < this.pad.length; i++) this.pad[i]!.triggerRelease(at);
   }
 
   /**
@@ -364,28 +375,17 @@ export class Groove {
     if (!p.pad || (m.eighths ? !m.groups.includes(s) : s % 4 !== 0)) return;
     const key = `${c.root}:${c.intervals.join(',')}`;
     if (s === 0 || key !== this.lastPadKey) {
-      const notes = c.intervals
-        .slice(0, this.lowPower ? 2 : 3)
-        .map((i) => studioVoice.hz(48 + c.root + i + (c.root + i > 7 ? -12 : 0)));
-      // Run after the Transport callback returns (same audio time): when the PolySynth has to build
-      // a voice, Tone's constructors schedule without a time and warn inside a Transport callback.
-      const pad = this.pad;
       this.lastPadKey = key;
+      const at = Math.max(time, this.lastPadAt + 0.005);
+      this.lastPadAt = at;
       const length = sixteenth * (m.steps - s) * 0.98;
-      const downbeat = s === 0;
-      queueMicrotask(() => {
-        if (pad.disposed) return;
-        // Chords changing every beat at a fast tempo would overrun the pad's voices (releasing ones
-        // still count): keep the sounding chord until voices free up rather than drop notes.
-        // Checked here, where the notes start: two steps can be scheduled in one turn.
-        const room = pad.maxPolyphony - pad.activeVoices;
-        if (room < notes.length) {
-          if (!downbeat || room <= 0) return;
-          notes.length = room;
-        }
-        pad.releaseAll(time);
-        pad.triggerAttackRelease(notes, length, time, 0.45);
-      });
+      const n = Math.min(this.lowPower ? 2 : 3, c.intervals.length, this.pad.length);
+      for (let k = 0; k < n; k++) {
+        const iv = c.intervals[k]!;
+        this.pad[k]!.triggerAttackRelease(studioVoice.hz(48 + c.root + iv + (c.root + iv > 7 ? -12 : 0)), length, at, 0.45);
+      }
+      // A chord with fewer tones than the last one: the spare voice lets go.
+      for (let k = n; k < this.pad.length; k++) this.pad[k]!.triggerRelease(at);
     }
   }
 }
