@@ -316,7 +316,9 @@ export class LearnController {
     const up: LearnNote[] = [];
     for (let k = st.index; k < st.total && up.length < RIBBON; k++) {
       const midi = notes[k]!.midi + this.shift;
-      up.push({ midi, note: noteName(midi), laneIndex: laneOf(this.lanes, midi), beats: notes[k]!.beats });
+      const lane = laneOf(this.lanes, midi);
+      // The lane's own name, so the ribbon spells notes like the lanes do (Bb vs A#).
+      up.push({ midi, note: lane >= 0 ? this.lanes[lane]!.note : noteName(midi), laneIndex: lane, beats: notes[k]!.beats });
     }
     st.upcoming = up;
     st.target = up[0] ?? null;
