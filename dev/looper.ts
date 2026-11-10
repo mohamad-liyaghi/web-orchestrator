@@ -59,7 +59,8 @@ const { createMusicEngine } = await import('../src/music');
 const { DEFAULT_SETTINGS } = await import('../src/settings');
 
 const engine = createMusicEngine();
-let settings: Settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures } };
+// The checks play melodies on lanes (the app now starts in chords mode).
+let settings: Settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, mode: 'melody' };
 
 // ---------------------------------------------------------------------------------------------
 // Internals the test inspects (not part of the public API)
