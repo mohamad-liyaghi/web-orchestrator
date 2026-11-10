@@ -146,7 +146,9 @@ export interface FrameQuality {
   verdict: FrameVerdict;
   /** True when the framing is ideal for playing (verdict 'great'). The UI also requires a face in mouth mode. */
   ideal: boolean;
-  /** 0..1 mean brightness of the picture (sampled a few times per second on a tiny canvas). */
+  /** 0..1 brightness, sampled a few times per second on a tiny canvas: 70% the face and hand
+   *  regions + 30% the whole picture (whole picture only when nobody is tracked), so a well-lit
+   *  player in front of a dark wall does not read as "too dark". */
   brightness: number;
   /** Average hand box height / frame height (0 when no hands): distance cue. */
   handScale: number;
