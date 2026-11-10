@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.8,
   skeleton: true,
   lanes: true,
+  lowPower: false,
 };
 
 const STORAGE_KEY = 'orchestrator.settings.v1';
@@ -33,7 +34,7 @@ const SCALES: readonly ScaleId[] = [
   'continuous',
 ];
 const TRIGGERS: readonly TriggerMode[] = ['mouth', 'pinch', 'always'];
-const LEFT_HAND: readonly LeftHandRole[] = ['volume', 'bass', 'off'];
+const LEFT_HAND: readonly LeftHandRole[] = ['volume', 'bass', 'chords', 'off'];
 
 const num = (v: unknown, fallback: number, lo: number, hi: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : fallback;
@@ -60,6 +61,7 @@ export function sanitizeSettings(raw: unknown, instrumentIds: readonly string[])
     volume: num(r.volume, d.volume, 0, 1),
     skeleton: bool(r.skeleton, d.skeleton),
     lanes: bool(r.lanes, d.lanes),
+    lowPower: bool(r.lowPower, d.lowPower),
   };
 }
 

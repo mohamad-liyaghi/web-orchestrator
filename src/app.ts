@@ -133,6 +133,7 @@ export class App {
 
       this.resizeObserver = new ResizeObserver(() => this.updatePlayZone());
       this.resizeObserver.observe(stage.viewport);
+      tracker.setLowPower(this.settings.lowPower);
       tracker.start(stage.video, this.onFrame);
       this.running = true;
       this.raf = requestAnimationFrame(this.loop);
@@ -226,6 +227,7 @@ export class App {
     this.settings = sanitizeSettings({ ...this.settings, ...patch }, this.instrumentIds);
     saveSettings(this.settings);
     this.engine.configure(this.settings);
+    this.tracker?.setLowPower(this.settings.lowPower);
     this.stage?.setSettings(this.settings);
   }
 

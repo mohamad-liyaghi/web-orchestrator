@@ -91,6 +91,8 @@ export class MockTracker implements Tracker {
     this.timer = window.setInterval(() => onFrame(this.frame(performance.now())), 1000 / 30);
   }
 
+  setLowPower(_on: boolean): void {}
+
   stop(): void {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;

@@ -132,6 +132,8 @@ export interface Tracker {
   init(onProgress?: (p: LoadProgress) => void): Promise<void>;
   /** Starts the per-video-frame loop. Calls onFrame once per processed frame. */
   start(video: HTMLVideoElement, onFrame: (frame: TrackingFrame) => void): void;
+  /** Low-power mode: cap tracking around 15-20 fps and run the face model less often. */
+  setLowPower(on: boolean): void;
   stop(): void;
   dispose(): void;
 }
@@ -146,10 +148,12 @@ export type VoiceId = 'lead' | 'bass';
 /**
  * What a second (left) hand does:
  *  - 'volume': theremin style, its height sets the loudness (top = loud, bottom = silent)
- *  - 'bass':   it plays the bass voice with its own instrument
+ *  - 'bass':   it plays the bass voice (its height picks the note) with the `bass` instrument
+ *  - 'chords': its raised finger count 1..5 picks the diatonic chord I..V of the key, played by
+ *              the `bass` instrument under the melody (0 fingers / fist = no chord)
  *  - 'off':    ignored, only the rightmost hand plays
  */
-export type LeftHandRole = 'volume' | 'bass' | 'off';
+export type LeftHandRole = 'volume' | 'bass' | 'chords' | 'off';
 
 export type InstrumentFamily =
   | 'keys'
@@ -210,7 +214,7 @@ export type TriggerMode = 'mouth' | 'pinch' | 'always';
 export interface Settings {
   /** InstrumentDef id played by the lead voice (right hand / only hand). */
   lead: string;
-  /** InstrumentDef id played by the bass voice (left hand, when leftHand = 'bass'). */
+  /** InstrumentDef id for the left hand's voice (leftHand = 'bass' or 'chords'). */
   bass: string;
   /** Role of a second hand on the left. */
   leftHand: LeftHandRole;
@@ -234,6 +238,8 @@ export interface Settings {
   skeleton: boolean;
   /** Draw note lanes. */
   lanes: boolean;
+  /** Low-power mode for weak devices: fewer tracking frames, no particles, lower canvas resolution. */
+  lowPower: boolean;
 }
 
 export interface VoiceState {
@@ -248,7 +254,7 @@ export interface VoiceState {
   gate: boolean;
   /** Current MIDI note (fractional in 'continuous' scale), null when idle. */
   midi: number | null;
-  /** Display name such as "C#4", "" when idle. */
+  /** Display name such as "C#4" (or the chord name, e.g. "Am", for a chords voice), "" when idle. */
   note: string;
   /** Index into lanes(voice), -1 when idle. */
   laneIndex: number;
