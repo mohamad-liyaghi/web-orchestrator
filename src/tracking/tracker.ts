@@ -62,6 +62,11 @@ interface ModelSources {
   face: Uint8Array | string;
 }
 
+/** Stand-ins for a failed or skipped-by-rebuild detection: tracked hands / face expire normally
+ *  instead of freezing (a frozen hand would hold its note). */
+const NO_HANDS: HandLandmarkerResult = { landmarks: [], worldLandmarks: [], handedness: [], handednesses: [] };
+const NO_FACE: FaceLandmarkerResult = { faceLandmarks: [], faceBlendshapes: [], facialTransformationMatrixes: [] };
+
 const ema = (prev: number, sample: number): number => (prev ? prev + (sample - prev) * 0.1 : sample);
 
 /**
@@ -390,7 +395,9 @@ export class MediaPipeTracker implements Tracker {
     const video = this.video;
     const hands = this.hands;
     const face = this.face;
-    if (!video || !hands || !face || this.recreating) return;
+    // While the landmarkers are rebuilt on the CPU, keep emitting (empty) frames so hands expire.
+    const rebuilding = this.recreating || !hands || !face;
+    if (!video || (rebuilding && !this.recreating)) return;
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
     const videoTime = video.currentTime;
     if (videoTime === this.lastVideoTime) return; // no new camera frame
@@ -405,32 +412,34 @@ export class MediaPipeTracker implements Tracker {
 
     const runFace = this.frameNo++ % faceEvery === 0;
 
-    let handResult: HandLandmarkerResult | null = null;
-    let faceResult: FaceLandmarkerResult | null = null;
+    let handResult: HandLandmarkerResult = NO_HANDS;
+    let faceResult: FaceLandmarkerResult | null = runFace ? NO_FACE : null;
     let failed = false;
     const t0 = performance.now();
-    try {
-      this.lastHandTs = Math.max(t0, this.lastHandTs + 1);
-      handResult = hands.detectForVideo(video, this.lastHandTs);
-    } catch (e) {
-      failed = true;
-      this.noteFailure(e);
-    }
-    const t1 = performance.now();
-    this.handCost = ema(this.handCost, t1 - t0);
-    if (runFace) {
+    if (hands && face && !rebuilding) {
       try {
-        this.lastFaceTs = Math.max(t1, this.lastFaceTs + 1);
-        faceResult = face.detectForVideo(video, this.lastFaceTs);
+        this.lastHandTs = Math.max(t0, this.lastHandTs + 1);
+        handResult = hands.detectForVideo(video, this.lastHandTs);
       } catch (e) {
         failed = true;
         this.noteFailure(e);
       }
-      this.faceCost = ema(this.faceCost, performance.now() - t1);
+      const t1 = performance.now();
+      this.handCost = ema(this.handCost, t1 - t0);
+      if (runFace) {
+        try {
+          this.lastFaceTs = Math.max(t1, this.lastFaceTs + 1);
+          faceResult = face.detectForVideo(video, this.lastFaceTs);
+        } catch (e) {
+          failed = true;
+          this.noteFailure(e);
+        }
+        this.faceCost = ema(this.faceCost, performance.now() - t1);
+      }
+      if (!failed) this.failures = 0;
+      this.adapt();
     }
-    if (!failed) this.failures = 0;
-    this.adapt();
-    if (this.delegate === 'GPU' && !failed) this.judgeGpu(performance.now() - t0, this.lastProcessed ? now - this.lastProcessed : 0);
+    if (this.delegate === 'GPU' && !failed && !rebuilding) this.judgeGpu(performance.now() - t0, this.lastProcessed ? now - this.lastProcessed : 0);
 
     const w = video.videoWidth;
     const h = video.videoHeight;
