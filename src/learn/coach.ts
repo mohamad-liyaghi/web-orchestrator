@@ -135,7 +135,8 @@ export class LearnController {
     this.syncLanes(lanes);
 
     if (st.mode === 'tempo') {
-      if (t - this.lastT > PAUSE_GAP_MS) this.clock0 += t - this.lastT;
+      // No lead to judge (chords mode): hold the song clock, or every note would pass as a miss.
+      if (!lead || t - this.lastT > PAUSE_GAP_MS) this.clock0 += t - this.lastT;
       st.songMs = t - this.clock0;
       this.advanceWindows(t);
       if (st.done) {
