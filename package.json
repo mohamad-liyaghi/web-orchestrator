@@ -20,6 +20,7 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@fontsource-variable/space-grotesk": "5.3.0",
     "@mediapipe/tasks-vision": "0.10.35",
+    "automation-events": "7.1.19",
     "tone": "15.1.22"
   },
   "devDependencies": {

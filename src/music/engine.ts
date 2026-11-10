@@ -16,6 +16,7 @@ import { Filter, Gain, Vibrato } from 'tone/build/esm/classes.js';
 import { Context } from 'tone/build/esm/core/context/Context.js';
 import { setContext } from 'tone/build/esm/core/Global.js';
 import './toneFixes';
+import './automationFix';
 import type {
   ActionGesture,
   ChordPlay,
@@ -83,6 +84,17 @@ const TILT_OFF = 0.35;
 const COMFORT_VOLUME = 0.75;
 const ACTION_GESTURES: ReadonlySet<string> = new Set<ActionGesture>(['fist', 'peace', 'thumbs-up', 'rock']);
 
+/**
+ * Tone keeps up to 1000 past automation events per Param (for getValueAtTime). The voice channel's
+ * params are re-targeted on every tracking frame and nothing reads that history, so a full one
+ * only made each new event more expensive: per-frame update time crept from ~0.2 ms to ~0.9 ms
+ * over a few minutes. Keeping a short history holds it flat.
+ */
+function shortHistory(param: unknown, events = 16): void {
+  const timeline = (param as { _events?: { memory?: number } })._events;
+  if (timeline && typeof timeline.memory === 'number') timeline.memory = events;
+}
+
 /** filter -> vibrato -> gain for one voice. */
 class Channel {
   readonly filter = new Filter({ type: 'lowpass', frequency: 12000, rolloff: -12, Q: 0.5 });
@@ -94,6 +106,7 @@ class Channel {
 
   constructor(dest: Gain) {
     this.filter.chain(this.vibrato, this.gain, dest);
+    for (const p of [this.filter.frequency, this.vibrato.depth, this.gain.gain]) shortHistory(p);
   }
 
   /** Gain the channel is heading to (the voice's loudness, squared). */
