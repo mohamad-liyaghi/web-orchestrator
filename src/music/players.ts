@@ -15,6 +15,7 @@ import type { InstrumentSpec } from './instruments';
 import type { SampleSet } from './samples';
 import { createSynthVoice, type MonoVoice } from './synths';
 import { midiToFreq } from './theory';
+import { studioVoice, type StudioMember } from './studio/voice';
 
 /**
  * Observer of a player's notes (looper recording, MIDI out). `off` fires once per note, whatever
@@ -78,6 +79,8 @@ const dbToGain = (db: number): number => Math.pow(10, db / 20);
 interface SampleNote {
   handle: number;
   src: AudioBufferSourceNode;
+  /** Playback rate at A440 (the concert pitch multiplies it). */
+  rate: number;
   env: GainNode;
   level: number;
   t0: number;
@@ -92,7 +95,7 @@ interface SampleNote {
 
 let handleSeq = 0;
 
-export class SamplePlayer implements Player {
+export class SamplePlayer implements Player, StudioMember {
   readonly output: Gain;
   tap: NoteTap | null = null;
   private notes: SampleNote[] = [];
@@ -105,15 +108,26 @@ export class SamplePlayer implements Player {
     private readonly limits: VoiceLimits,
   ) {
     this.output = new Gain(dbToGain(spec.trim ?? 0));
+    studioVoice.join(this);
   }
 
   get activeCount(): number {
     return this.notes.length;
   }
 
+  retune(time: number): void {
+    const k = Math.pow(2, studioVoice.cents / 1200);
+    for (const n of this.notes) if (!n.ended) n.src.playbackRate.setTargetAtTime(n.rate * k, time, studioVoice.retuneTau);
+  }
+
+  reshape(): void {
+    /* attack and release are read per note */
+  }
+
   start(midi: number, velocity: number, time: number, gain = 1, opts?: StartOptions): number {
     if (this.disposed) return -1;
-    const m = Math.max(0, Math.min(127, Math.round(midi)));
+    const written = Math.max(0, Math.min(127, Math.round(midi)));
+    const m = Math.max(0, Math.min(127, written + studioVoice.transpose));
     const zone = this.set.nearest[m];
     if (!zone) return -1;
     this.sweep(time);
@@ -122,13 +136,15 @@ export class SamplePlayer implements Player {
     const src = this.ctx.createBufferSource();
     src.buffer = zone.buffer;
     const rate = Math.pow(2, (m - zone.midi) / 12);
+    // The concert pitch (A4) scales every rate.
+    const tune = Math.pow(2, studioVoice.cents / 1200);
     if (opts?.bendFrom !== undefined && opts.bendTime && Math.abs(opts.bendFrom - m) > 0.01) {
       // A short bend into the note: the slide / portamento illusion on a sample.
       const from = Math.pow(2, (Math.max(m - 4, Math.min(m + 4, opts.bendFrom)) - zone.midi) / 12);
-      src.playbackRate.setValueAtTime(from, time);
-      src.playbackRate.exponentialRampToValueAtTime(rate, time + Math.max(0.005, opts.bendTime));
+      src.playbackRate.setValueAtTime(from * tune, time);
+      src.playbackRate.exponentialRampToValueAtTime(rate * tune, time + Math.max(0.005, opts.bendTime));
     } else {
-      src.playbackRate.value = rate;
+      src.playbackRate.value = rate * tune;
     }
     if (zone.loop) {
       src.loop = true;
@@ -138,7 +154,7 @@ export class SamplePlayer implements Player {
     const env = this.ctx.createGain();
     const v = Math.max(0, Math.min(1, velocity));
     const level = (this.spec.sustained ? 1 : 0.06 + 0.94 * Math.pow(v, 1.5)) * Math.max(0, Math.min(1, gain));
-    const attack = Math.max(0.0015, opts?.attack ?? (this.spec.sustained ? 0.012 : 0.0025));
+    const attack = Math.max(0.0015, opts?.attack ?? studioVoice.attackTime(this.spec.sustained ? 0.012 : 0.0025));
     env.gain.setValueAtTime(0, time);
     env.gain.linearRampToValueAtTime(level, time + attack);
     src.connect(env);
@@ -146,6 +162,7 @@ export class SamplePlayer implements Player {
     const note: SampleNote = {
       handle: ++handleSeq,
       src,
+      rate,
       env,
       level,
       t0: time,
@@ -158,7 +175,7 @@ export class SamplePlayer implements Player {
     src.onended = () => this.cleanup(note);
     src.start(time, zone.offset);
     this.notes.push(note);
-    this.tap?.on(this, note.handle, m, v, time);
+    this.tap?.on(this, note.handle, written, v, time);
     return note.handle;
   }
 
@@ -203,6 +220,7 @@ export class SamplePlayer implements Player {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    studioVoice.leave(this);
     const now = this.ctx.currentTime;
     for (const n of this.notes.slice()) {
       this.tapOff(n, now);
@@ -233,7 +251,7 @@ export class SamplePlayer implements Player {
   private release(n: SampleNote, time: number, release: number): void {
     if (n.ended) return;
     this.tapOff(n, time);
-    const r = Math.max(0.01, release);
+    const r = Math.max(0.01, studioVoice.releaseTime(release));
     // Already releasing at least this fast: nothing to do.
     if (n.releaseAt <= time && n.tau <= r / 5) return;
     const v = this.valueAt(n, time);
@@ -308,6 +326,9 @@ interface SynthSlot {
   portamento: number;
   /** The voice was silent when its current note was scheduled (nothing to fade out). */
   fresh: boolean;
+  /** The preset's own envelope times (the studio scales them). */
+  baseAttack: number;
+  baseRelease: number;
 }
 
 /** The parts of a Tone voice the cancel path touches (envelopes and oscillators). */
@@ -323,7 +344,7 @@ function oscillatorSilentAt(osc: VoicePart | undefined, time: number, fallback: 
   return state === undefined ? fallback : state !== 'started';
 }
 
-export class SynthPlayer implements Player {
+export class SynthPlayer implements Player, StudioMember {
   readonly output: Gain;
   tap: NoteTap | null = null;
   private readonly slots: SynthSlot[] = [];
@@ -335,8 +356,22 @@ export class SynthPlayer implements Player {
     private readonly limits: VoiceLimits,
   ) {
     this.output = new Gain(dbToGain(spec.trim ?? 0));
+    studioVoice.join(this);
     // Build the first voice now, so the first note does not pay for node creation.
     if (spec.synth) this.addSlot();
+  }
+
+  retune(time: number): void {
+    for (const s of this.slots) s.voice.detune.setTargetAtTime(studioVoice.cents, Math.max(time, this.output.context.currentTime), studioVoice.retuneTau);
+  }
+
+  reshape(): void {
+    for (const s of this.slots) this.shape(s);
+  }
+
+  private shape(s: SynthSlot): void {
+    s.voice.envelope.attack = studioVoice.attackTime(s.baseAttack);
+    s.voice.envelope.release = s.baseRelease * studioVoice.releaseFactor;
   }
 
   get activeCount(): number {
@@ -365,8 +400,9 @@ export class SynthPlayer implements Player {
     try {
       // A fresh attack must not glide in from the voice's previous pitch.
       slot.voice.frequency.cancelScheduledValues(at);
-      slot.voice.frequency.setValueAtTime(midiToFreq(midi), at);
-      slot.voice.triggerAttack(midiToFreq(midi), at, v * Math.max(0.02, Math.min(1, gain)));
+      const hz = midiToFreq(midi + studioVoice.transpose);
+      slot.voice.frequency.setValueAtTime(hz, at);
+      slot.voice.triggerAttack(hz, at, v * Math.max(0.02, Math.min(1, gain)));
     } catch (e) {
       slot.held = false;
       slot.freeAt = 0;
@@ -380,7 +416,7 @@ export class SynthPlayer implements Player {
   glide(handle: number, midi: number, time: number): boolean {
     const slot = this.slots.find((s) => s.handle === handle && s.held);
     if (!slot) return false;
-    slot.voice.setNote(midiToFreq(midi), Math.max(time, slot.last));
+    slot.voice.setNote(midiToFreq(midi + studioVoice.transpose), Math.max(time, slot.last));
     this.tap?.glide(this, handle, midi, time);
     return true;
   }
@@ -423,7 +459,7 @@ export class SynthPlayer implements Player {
           if (end && end.time < slot.t0) osc.stop(end.time);
         }
       }
-      slot.freeAt = silent ? time : time + this.spec.release * 1.5 + 0.05;
+      slot.freeAt = silent ? time : time + this.spec.release * studioVoice.releaseFactor * 1.5 + 0.05;
       slot.last = time;
     } catch {
       // Fall back to an ordinary release right after the attack.
@@ -434,7 +470,7 @@ export class SynthPlayer implements Player {
         /* the voice is stolen or reused before long */
       }
       slot.last = at;
-      slot.freeAt = at + this.spec.release * 1.5 + 0.05;
+      slot.freeAt = at + this.spec.release * studioVoice.releaseFactor * 1.5 + 0.05;
     }
   }
 
@@ -445,6 +481,7 @@ export class SynthPlayer implements Player {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    studioVoice.leave(this);
     const now = this.output.context.currentTime;
     for (const s of this.slots) {
       if (s.held) this.tap?.off(this, s.handle, now);
@@ -460,13 +497,27 @@ export class SynthPlayer implements Player {
     const at = Math.max(time, s.t0 + 0.005, s.last + 0.002);
     s.last = at;
     s.voice.triggerRelease(at);
-    s.freeAt = at + this.spec.release * 1.5 + 0.05;
+    s.freeAt = at + this.spec.release * studioVoice.releaseFactor * 1.5 + 0.05;
   }
 
   private addSlot(): SynthSlot {
     const voice = createSynthVoice(this.spec.synth!);
     voice.connect(this.output);
-    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0, last: 0, portamento: voice.portamento, fresh: true };
+    const env = voice.envelope;
+    const slot: SynthSlot = {
+      voice,
+      handle: -1,
+      held: false,
+      t0: 0,
+      freeAt: 0,
+      last: 0,
+      portamento: voice.portamento,
+      fresh: true,
+      baseAttack: env.toSeconds(env.attack),
+      baseRelease: env.toSeconds(env.release),
+    };
+    voice.detune.value = studioVoice.cents;
+    this.shape(slot);
     this.slots.push(slot);
     return slot;
   }
