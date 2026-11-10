@@ -10,9 +10,11 @@ ENV CI=true npm_config_update_notifier=false npm_config_fund=false npm_config_au
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,id=web-orchestrator-npm,target=/root/.npm npm ci
 
-# Runtime assets (MediaPipe wasm, models, samples) only depend on the fetch scripts and the
-# installed packages, so this layer survives source edits and the downloads are not repeated.
+# Runtime assets (MediaPipe wasm, models, samples) only depend on the fetch scripts, the committed
+# samples and the installed packages, so this layer survives source edits and the downloads are
+# not repeated. The samples step only verifies public/samples, so it has to be in place first.
 COPY scripts/ scripts/
+COPY public/samples/ public/samples/
 RUN npm run assets
 
 COPY . .
