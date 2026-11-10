@@ -43,19 +43,27 @@ export const MOCK_INSTRUMENTS: readonly InstrumentDef[] = [
   I('grand-piano', 'Grand Piano', 'keys', '#7cc4ff', '🎹', 'Concert grand, warm and bright', false, [21, 108], 2400),
   I('electric-piano', 'Electric Piano', 'keys', '#5fb2ff', '🎹', 'Vintage tines, soft bell', false, [28, 103], 1300),
   I('acoustic-guitar', 'Acoustic Guitar', 'guitar', '#ffb547', '🎸', 'Steel strings, bright strum', false, [40, 84], 1100),
-  I('electric-guitar', 'Electric Guitar', 'guitar', '#ff9a3c', '🎸', 'Clean amp, round tone', false, [40, 86], 1200),
+  I('nylon-guitar', 'Nylon Guitar', 'guitar', '#ffc46b', '🎸', 'Classical, soft and round', false, [40, 84], 1000),
+  I('clean-guitar', 'Clean Electric', 'guitar', '#ff9a3c', '🎸', 'Clean amp, round tone', false, [40, 86], 1200),
   I('electric-bass', 'Electric Bass', 'bass', '#ff6b8b', '🎸', 'Fingered, punchy low end', false, [28, 67], 900),
   I('upright-bass', 'Upright Bass', 'bass', '#ff8aa2', '🎻', 'Jazz pizzicato', false, [28, 67], 800),
   I('violin', 'Violin', 'strings', '#ff8a5c', '🎻', 'Expressive solo bow', true, [55, 100], 1500),
   I('cello', 'Cello', 'strings', '#ff7a48', '🎻', 'Deep, singing bow', true, [36, 76], 1400),
+  I('string-ensemble', 'String Ensemble', 'strings', '#ff9a70', '🎻', 'Lush section', true, [28, 96], 1600),
+  I('harp', 'Concert Harp', 'strings', '#ffb08a', '🪉', 'Glassy plucked strings', false, [24, 103], 1200),
   I('opera-choir', 'Opera Choir', 'voice', '#ff3dcb', '🎭', 'Soaring “aah” ensemble', true, [48, 84], 1800),
   I('trumpet', 'Trumpet', 'brass', '#ffd23f', '🎺', 'Bright and bold', true, [54, 86], 900),
   I('flute', 'Flute', 'woodwind', '#6bffb8', '🪈', 'Airy and pure', true, [60, 96], 700),
   I('marimba', 'Marimba', 'mallet', '#3cf2ff', '🪘', 'Rosewood bars, mellow', false, [45, 96], 600),
+  I('vibraphone', 'Vibraphone', 'mallet', '#5ff5ff', '🪘', 'Metal bars, motor shimmer', false, [53, 89], 700),
   I('sitar', 'Sitar', 'world', '#ff9f43', '🪕', 'Buzzing sympathetic strings', false, [48, 84], 800),
+  I('banjo', 'Banjo', 'world', '#ffb36b', '🪕', 'Bright bluegrass twang', false, [48, 84], 700),
   I('church-organ', 'Church Organ', 'organ', '#b48cff', '⛪', 'Full pipe registration', true, [36, 96], 1000),
   I('theremin', 'Theremin', 'synth', '#8b5cf6', '〰', 'Eerie continuous pitch', true, [48, 96], 0),
-  I('glass-pad', 'Glass Pad', 'synth', '#a78bfa', '✦', 'Shimmering wide pad', true, [36, 96], 0),
+  I('analog-lead', 'Analog Lead', 'synth', '#9b6bff', '◢', 'Fat saw lead', true, [36, 96], 0),
+  I('warm-pad', 'Warm Pad', 'synth', '#a78bfa', '✦', 'Soft evolving pad', true, [36, 96], 0),
+  I('pluck', 'Pluck', 'synth', '#c4a5ff', '◆', 'Short synth pluck', false, [36, 96], 0),
+  I('sub-bass', 'Sub Bass', 'synth', '#7c4dff', '▼', 'Deep sine bass', true, [24, 60], 0),
 ];
 
 export const MOCK_SCALES: readonly ScaleDef[] = [
@@ -245,8 +253,9 @@ export class MockEngine implements MusicEngine {
     this.m.sessionMs = now - this.t0;
     if (s.groove) {
       const beats = Math.floor(((now - this.t0) / 60000) * s.tempo);
-      this.m.bar = Math.floor(beats / 4) + 1;
-      this.m.beat = (beats % 4) + 1;
+      const perBar = Number(s.timeSignature.split('/')[0]) || 4;
+      this.m.bar = Math.floor(beats / perBar) + 1;
+      this.m.beat = (beats % perBar) + 1;
     } else {
       this.m.bar = 0;
       this.m.beat = 0;
