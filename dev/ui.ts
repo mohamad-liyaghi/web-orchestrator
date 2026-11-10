@@ -7,11 +7,13 @@
  *   error=<code>    show that AppError on the landing page
  *   stageError      show an error card on the stage
  *   boot            keep the boot overlay up (models never finish)
- *   sheet=<tab>     open the controls on lead | left | play | gestures | display
+ *   sheet=<tab>     open the controls on lead | left | play | learn | gestures | display
  *   help            open the help overlay
  *   mode=chords     start in chords mode;  lowPower  start in low-power mode
  *   rec             start a (silent) recording
  *   set=<json>      extra settings patch
+ *   learn=<songId>  start Learn mode on that song (learnMode=tempo for tempo mode)
+ *   learnPilot      the right hand follows the target lane and the mouth opens on it
  */
 import { AppError, type AppErrorCode, type LandingView, type Settings, type StageView, type TrackingFrame, type VoiceState } from '../src/types';
 import { mountLanding, mountStage } from '../src/ui';
@@ -20,6 +22,7 @@ import { MockEngine } from '../src/dev/mockEngine';
 import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/settings';
 import { GestureController } from '../src/gestures';
 import { coverMap, playZoneFor } from '../src/geometry';
+import { LearnSession } from '../src/learn';
 
 const q = new URLSearchParams(location.search);
 const root = document.getElementById('app')!;
@@ -43,6 +46,34 @@ let voices: VoiceState[] = [];
 let raf = 0;
 let fakeCam: { stream: MediaStream; stop: () => void } | null = null;
 let zoneKey = '';
+const learn = new LearnSession(ids);
+const learnPilot = q.has('learnPilot');
+let pilotY = -1;
+
+/** Learn autopilot: glide the lead hand to the target lane, open the mouth once it is there. */
+function pilot(f: TrackingFrame): void {
+  const st = learn.state!;
+  const hand = f.hands[f.hands.length - 1];
+  const lane = st.target ? engine.lanes('lead')[st.target.laneIndex] : undefined;
+  if (!hand || !lane) return;
+  if (pilotY < 0) pilotY = hand.indexTip.y;
+  pilotY += (lane.y - pilotY) * 0.35;
+  const dy = pilotY - hand.indexTip.y;
+  for (const p of hand.landmarks) p.y += dy;
+  hand.box.y += dy;
+  hand.indexTip.y += dy;
+  hand.thumbTip.y += dy;
+  hand.pinch = 0;
+  hand.pinching = false;
+  if (f.face) {
+    const onLane = Math.abs(lane.y - pilotY) < lane.h / 2;
+    // Tempo mode: open just before the note is due (closing after each hit re-articulates).
+    const due = st.mode === 'wait' ? f.t - st.lastHitT > 160 : st.songMs >= st.targetStartMs - 120;
+    const open = onLane && due;
+    f.face.mouthOpen = open ? 0.7 : 0.02;
+    f.face.mouthIsOpen = open;
+  }
+}
 
 const gestures = new GestureController({
   getSettings: () => settings,
@@ -125,6 +156,7 @@ const loop = (): void => {
     status: { fps: frame?.fps ?? 0, delegate: tracker?.delegate ?? null, hands: frame?.hands.length ?? 0, face: !!frame?.face },
     lastGesture: gestures.last,
     pendingGesture: gestures.pending,
+    learn: learn.state,
   });
   raf = requestAnimationFrame(loop);
 };
@@ -132,10 +164,20 @@ const loop = (): void => {
 async function start(): Promise<void> {
   landing?.setBusy(true, 'Tuning the orchestra…');
   await engine.unlock();
-  const st = mountStage(root, { onSettings: apply, onRecordToggle: toggleRec, onExit: exit });
+  const st = mountStage(root, {
+    onSettings: apply,
+    onRecordToggle: toggleRec,
+    onExit: exit,
+    onLearn: (id, mode) => {
+      if (!id) return learn.stop();
+      const patch = learn.start(id, mode);
+      if (patch) apply(patch);
+    },
+  });
   stage = st;
   st.setInstruments(engine.instruments, engine.scales);
   st.setSettings(settings);
+  st.setSongs(learn.songs());
   engine.onLoadState((s) => stage?.setLoadState(s));
   engine.configure(settings);
   st.setBootProgress({ stage: 'camera', label: 'Waiting for camera permission', loaded: 0, total: 0, done: false });
@@ -159,7 +201,10 @@ async function start(): Promise<void> {
     frame = f;
     updateZone();
     gestures.update(f);
+    if (learnPilot && learn.state) pilot(f);
     voices = engine.update(f);
+    const lead = settings.mode === 'melody' ? (voices[0] ?? null) : null;
+    if (learn.state && learn.update(lead, engine.lanes('lead'), f.t)) stage?.setSongs(learn.songs());
   });
   window.addEventListener('resize', updateZone);
   raf = requestAnimationFrame(loop);
@@ -168,10 +213,15 @@ async function start(): Promise<void> {
   const tab = q.get('sheet');
   if (tab) {
     click('.dock-more');
-    const names: Record<string, string> = { lead: 'Lead', left: 'Left hand', play: 'Play', gestures: 'Gestures', display: 'Setup' };
+    const names: Record<string, string> = { lead: 'Lead', left: 'Left hand', play: 'Play', learn: 'Learn', gestures: 'Gestures', display: 'Setup' };
     for (const b of document.querySelectorAll<HTMLElement>('.tab')) if (b.textContent === names[tab]) b.click();
   }
   if (q.has('help')) click('.icon-btn[aria-label^="Help"]');
+  const song = q.get('learn');
+  if (song) {
+    const patch = learn.start(song, q.get('learnMode') === 'tempo' ? 'tempo' : 'wait');
+    if (patch) apply(patch);
+  }
   if (q.has('rec')) toggleRec();
   if (q.has('stageError')) st.showError(new AppError('model-load-failed', 'Failed to fetch hand_landmarker.task (HTTP 503)'));
 }
@@ -184,6 +234,7 @@ function exit(): void {
   fakeCam = null;
   engine.panic();
   gestures.reset();
+  learn.stop();
   stage?.destroy();
   stage = null;
   frame = null;

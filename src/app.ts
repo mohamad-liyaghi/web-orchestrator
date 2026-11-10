@@ -2,6 +2,7 @@ import {
   AppError,
   type HudStatus,
   type LandingView,
+  type LearnMode,
   type MusicEngine,
   type Settings,
   type StageView,
@@ -16,6 +17,7 @@ import { MockTracker } from './dev/mockTracker';
 import { loadSettings, sanitizeSettings, saveSettings, settingsFromHash } from './settings';
 import { coverMap, playZoneFor } from './geometry';
 import { GestureController } from './gestures';
+import { LearnSession } from './learn';
 
 /** `?mock` runs a synthetic tracker: no camera, no models. Used for development and tests. */
 const MOCK = new URLSearchParams(location.search).has('mock');
@@ -64,11 +66,13 @@ export class App {
   private zoneKey = '';
   private readonly instrumentIds: string[];
   private readonly gestures: GestureController;
+  private readonly learn: LearnSession;
 
   constructor(private readonly root: HTMLElement) {
     this.engine = createMusicEngine();
     this.instrumentIds = this.engine.instruments.map((i) => i.id);
     this.settings = loadSettings(this.instrumentIds);
+    this.learn = new LearnSession(this.instrumentIds);
     this.gestures = new GestureController({
       getSettings: () => this.settings,
       apply: (patch) => this.applySettings(patch),
@@ -122,10 +126,12 @@ export class App {
         onSettings: (patch) => this.applySettings(patch),
         onRecordToggle: () => void this.toggleRecording(),
         onExit: () => void this.exit(),
+        onLearn: (songId, mode) => this.setLearn(songId, mode),
       });
       this.stage = stage;
       stage.setInstruments(this.engine.instruments, this.engine.scales);
       stage.setSettings(this.settings);
+      stage.setSongs(this.learn.songs());
       this.unsubscribeLoad = this.engine.onLoadState((s) => this.stage?.setLoadState(s));
 
       const tracker: Tracker = MOCK ? new MockTracker() : createTracker();
@@ -190,6 +196,7 @@ export class App {
     this.voices = [];
     this.zoneKey = '';
     this.gestures.reset();
+    this.learn.stop();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -201,6 +208,7 @@ export class App {
     this.updatePlayZone();
     this.gestures.update(frame);
     this.voices = this.engine.update(frame);
+    this.updateLearn(frame.t);
   };
 
   private readonly loop = (): void => {
@@ -221,6 +229,7 @@ export class App {
       status,
       lastGesture: this.gestures.last,
       pendingGesture: this.gestures.pending,
+      learn: this.learn.state,
     });
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -275,6 +284,28 @@ export class App {
     } catch (e) {
       this.stage?.toast(`Could not save the recording: ${toAppError(e).message}`);
     }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Learn mode
+  // -------------------------------------------------------------------------------------------
+
+  /** Start (or restart) a song with its lane setup, or stop learning. Nothing is restored after. */
+  private setLearn(songId: string | null, mode?: LearnMode): void {
+    if (!songId) {
+      this.learn.stop();
+      return;
+    }
+    const patch = this.learn.start(songId, mode);
+    if (patch) this.applySettings(patch);
+  }
+
+  private updateLearn(t: number): void {
+    if (!this.learn.state) return;
+    let lead: VoiceState | null = null;
+    // Chords mode has no lead lanes: pause judging until the user is back in melody mode.
+    if (this.settings.mode === 'melody') for (const v of this.voices) if (v.voice === 'lead') lead = v;
+    if (this.learn.update(lead, this.engine.lanes('lead'), t)) this.stage?.setSongs(this.learn.songs());
   }
 
   // -------------------------------------------------------------------------------------------

@@ -351,7 +351,10 @@ export class MockEngine implements MusicEngine {
       const hh = (y1 - y0) / count;
       return notes.map((midi, i) => ({ midi, note: noteName(midi), y: y0 + hh * (i + 0.5), h: hh, isRoot: (((midi - this.s.key) % 12) + 12) % 12 === 0 }));
     };
-    this.leadLanes = make(this.s.span, 60 + this.s.key + this.s.octave * 12 - 12, this.zone.y0, this.zone.y1);
+    // Same layout as the real engine: root in octave 4 + octave (3 when the span covers > ~2 octaves).
+    const ivLen = this.scales.find((x) => x.id === this.s.scale)?.intervals.length || 12;
+    const baseOctave = (this.s.span / ivLen) * 12 > 26 ? 3 : 4;
+    this.leadLanes = make(this.s.span, 12 * (baseOctave + 1 + this.s.octave) + this.s.key, this.zone.y0, this.zone.y1);
     this.bassLanes = make(8, 36 + this.s.key, this.zone.y0, this.zone.y1);
   }
 
