@@ -81,6 +81,7 @@ export class SamplePlayer implements Player {
     const m = Math.max(0, Math.min(127, Math.round(midi)));
     const zone = this.set.nearest[m];
     if (!zone) return -1;
+    this.sweep(time);
     this.enforcePolyphony(time);
 
     const src = this.ctx.createBufferSource();
@@ -182,6 +183,23 @@ export class SamplePlayer implements Player {
     }
   }
 
+  /** Safety net: forget notes whose release finished long ago even if 'ended' never fired. */
+  private sweep(time: number): void {
+    for (let i = this.notes.length - 1; i >= 0; i--) {
+      const n = this.notes[i]!;
+      const loopForever = n.releaseAt === Infinity && n.src.loop;
+      const done = n.releaseAt !== Infinity ? time > n.releaseAt + n.tau * 10 + 1 : !loopForever && time > n.t0 + (n.src.buffer?.duration ?? 0) + 1;
+      if (done) {
+        try {
+          n.src.stop();
+        } catch {
+          /* already stopped */
+        }
+        this.cleanup(n);
+      }
+    }
+  }
+
   private cleanup(n: SampleNote): void {
     if (n.ended) return;
     n.ended = true;
@@ -216,6 +234,8 @@ export class SynthPlayer implements Player {
     private readonly limits: VoiceLimits,
   ) {
     this.output = new Gain(dbToGain(spec.trim ?? 0));
+    // Build the first voice now, so the first note does not pay for node creation.
+    if (spec.synth) this.addSlot();
   }
 
   get activeCount(): number {
@@ -227,6 +247,7 @@ export class SynthPlayer implements Player {
 
   start(midi: number, velocity: number, time: number): number {
     if (this.disposed || !this.spec.synth) return -1;
+    time = Math.max(time, this.output.context.currentTime);
     const slot = this.pickSlot(time);
     slot.handle = ++handleSeq;
     slot.held = true;
@@ -269,16 +290,18 @@ export class SynthPlayer implements Player {
     s.freeAt = time + this.spec.release * 1.5 + 0.05;
   }
 
+  private addSlot(): SynthSlot {
+    const voice = createSynthVoice(this.spec.synth!);
+    voice.connect(this.output);
+    const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0 };
+    this.slots.push(slot);
+    return slot;
+  }
+
   private pickSlot(time: number): SynthSlot {
     let best: SynthSlot | undefined;
     for (const s of this.slots) if (!s.held && s.freeAt <= time) return s;
-    if (this.slots.length < Math.max(1, this.limits.synth)) {
-      const voice = createSynthVoice(this.spec.synth!);
-      voice.connect(this.output);
-      const slot: SynthSlot = { voice, handle: -1, held: false, t0: 0, freeAt: 0 };
-      this.slots.push(slot);
-      return slot;
-    }
+    if (this.slots.length < Math.max(1, this.limits.synth)) return this.addSlot();
     // Steal: prefer a releasing voice, else the oldest held one.
     for (const s of this.slots) if (!s.held && (!best || s.freeAt < best.freeAt)) best = s;
     if (!best) for (const s of this.slots) if (!best || s.t0 < best.t0) best = s;
