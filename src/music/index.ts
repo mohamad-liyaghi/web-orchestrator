@@ -1,9 +1,13 @@
 /**
  * Music module public API: Tone.js engine, instrument catalog, scales, gesture -> note mapping,
- * backing groove and recorder. Implementation: see the music brief / README.
+ * chord player, backing groove and recorder.
  */
 import type { MusicEngine } from '../types';
+import { createEngine } from './engine';
 
 export function createMusicEngine(): MusicEngine {
-  throw new Error('music: not implemented yet');
+  return createEngine();
 }
+
+export { INSTRUMENTS } from './instruments';
+export { SCALES } from './theory';
