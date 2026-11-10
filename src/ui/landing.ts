@@ -47,7 +47,7 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
   title.append('Play music', h('br'), h('span', { class: 'grad-text', text: 'out of thin air.' }));
   const sub = h('p', {
     class: 'hero-sub',
-    text: 'Raise a hand to pick the note, open your mouth to play it. A full orchestra follows your fingertip, tracked live by your camera.',
+    text: 'Raise your hands and play. Fingers pick the chord, height sets the volume, and a full orchestra follows, tracked live by your camera.',
   });
   const primary = makeCta(opts.onStart, 'cta-hero');
   const ctaNote = h('p', { class: 'cta-note' });
@@ -85,9 +85,9 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
   );
   const steps = h('ol', { class: 'steps' });
   const stepData: ReadonlyArray<[string, string, string]> = [
-    [stepHandSvg(), 'Raise your right hand', 'Your index fingertip picks the note: higher finger, higher note, always in key.'],
-    [stepMouthSvg(), 'Open your mouth to play', 'Like a breath controller: open to sound, wider is louder. Prefer pinching? Switch the trigger.'],
-    [stepLeftSvg(), 'Add your left hand', 'Theremin-style volume by height, a bass line, or 1–5 raised fingers for the chords I–V.'],
+    [stepLeftSvg(), 'Left hand picks the chord', '1 to 5 fingers play chords I to V of the key; index + pinky is vi, add the thumb for vii°.'],
+    [stepHandSvg(), 'Right hand shapes it', 'Raise it for louder, show fingers for 7th, add9, sus4 or an open voicing, tilt for a darker tone.'],
+    [stepMouthSvg(), 'Switch to Melody', 'Fingertip height picks single notes on 50+ instruments; open your mouth to play, like a breath controller.'],
   ];
   stepData.forEach(([art, t, d], i) => {
     const li = h('li', { class: 'step glass' });
