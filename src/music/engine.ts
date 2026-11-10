@@ -255,6 +255,8 @@ class Engine implements MusicEngine {
     chordStyle: '',
     borrowed: false,
     diatonic: [],
+    degreeHandId: null,
+    styleHandId: null,
     activeMidi: [],
     expression: 0,
     handVolume: 1,
@@ -1024,6 +1026,7 @@ class Engine implements MusicEngine {
     st.laneIndex = -1;
 
     const degree = hand ? this.degree.push(degreeFromFingers(hand), now) : this.degree.reset();
+    this.m.degreeHandId = hand ? hand.id : null;
     // Same trigger as the lead: mouth, the lead hand's pinch (the chord hand is busy), or always.
     const trig = s.trigger === 'mouth' ? this.mouthGate : s.trigger === 'pinch' ? !!leadHand?.pinching && leadHand !== hand : true;
     const gate = !!hand && !!player && trig && degree >= 1;
@@ -1075,6 +1078,8 @@ class Engine implements MusicEngine {
     const bassSpec = this.specFor(bass);
 
     const degree = left ? this.degree.push(degreeFromFingers(left), now) : this.degree.reset();
+    this.m.degreeHandId = left ? left.id : null;
+    this.m.styleHandId = right ? right.id : null;
     if (s.tiltControls && left) {
       const r = Math.abs(left.roll);
       this.borrowed = this.borrowed ? r > TILT_OFF : r > TILT_ON;
@@ -1239,6 +1244,8 @@ class Engine implements MusicEngine {
     }
     const chordMode = s.mode === 'chords';
     m.degree = chordMode || s.leftHand === 'chords' ? this.degree.value : 0;
+    if (!chordMode && s.leftHand !== 'chords') m.degreeHandId = null;
+    if (!chordMode) m.styleHandId = null;
     m.borrowed = chordMode && this.borrowed;
     if (!chordMode) m.chordStyle = '';
 
@@ -1385,6 +1392,8 @@ class Engine implements MusicEngine {
     }
     this.mouthGate = false;
     this.expression = 0;
+    this.m.degreeHandId = null;
+    this.m.styleHandId = null;
     this.degree.reset();
     this.styleFingers.reset();
     this.groove?.silence();

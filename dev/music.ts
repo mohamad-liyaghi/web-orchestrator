@@ -393,7 +393,7 @@ async function selfTest(): Promise<Report> {
     const results: Report[] = [];
     for (const [name, make] of cases) {
       const r = await drive(make, 450);
-      results.push({ case: name, chord: r.metrics.chord, roman: r.metrics.roman, degree: r.metrics.degree, style: r.metrics.chordStyle, borrowed: r.metrics.borrowed, lead: r.voices[0]!.note, bass: r.voices[1]!.note, active: r.metrics.activeMidi.join(','), gate: r.voices[0]!.gate, peak: Number(r.peak.toFixed(3)) });
+      results.push({ case: name, chord: r.metrics.chord, roman: r.metrics.roman, degree: r.metrics.degree, style: r.metrics.chordStyle, borrowed: r.metrics.borrowed, hands: `${r.metrics.degreeHandId}/${r.metrics.styleHandId}`, lead: r.voices[0]!.note, bass: r.voices[1]!.note, active: r.metrics.activeMidi.join(','), gate: r.voices[0]!.gate, peak: Number(r.peak.toFixed(3)) });
     }
     report.chordsLoad = [a!.ok, b!.ok];
     report.chords = results;
