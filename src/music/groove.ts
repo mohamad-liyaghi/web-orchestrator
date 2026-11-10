@@ -198,6 +198,8 @@ export class Groove {
   private style: Pattern = PATTERNS.pop;
   /** Metronome click level relative to the default click volume. */
   private clickLevel = 1;
+  /** Latest hit time: Tone's synths reject a start before the previous one. */
+  private lastAt = 0;
   /** The player's own chords cover the harmony (chords mode): drums only. */
   private harmony = true;
 
@@ -336,7 +338,10 @@ export class Groove {
     if (!this.running) return;
     const p = this.style;
     const m = this.meter;
-    const at = time + offset * sixteenth;
+    // Grid steps arrive in order, but a tempo change can pull a step slightly before the one that
+    // was scheduled ahead with the old tempo: never go back in time.
+    const at = Math.max(time + offset * sixteenth, this.lastAt + 0.001);
+    this.lastAt = at;
     if (p.click) {
       if (s % m.beatSteps !== 0 || this.clickLevel <= 0) return;
       // Downbeat high, other group starts (5/4, 6/8, 7/8) a little accented, the rest soft.
@@ -359,13 +364,20 @@ export class Groove {
     if (!p.pad || (m.eighths ? !m.groups.includes(s) : s % 4 !== 0)) return;
     const key = `${c.root}:${c.intervals.join(',')}`;
     if (s === 0 || key !== this.lastPadKey) {
-      this.lastPadKey = key;
       const notes = c.intervals
         .slice(0, this.lowPower ? 2 : 3)
         .map((i) => studioVoice.hz(48 + c.root + i + (c.root + i > 7 ? -12 : 0)));
       // Run after the Transport callback returns (same audio time): when the PolySynth has to build
       // a voice, Tone's constructors schedule without a time and warn inside a Transport callback.
       const pad = this.pad;
+      // Chords changing every beat at a fast tempo would overrun the pad's voices (releasing ones
+      // still count): keep the sounding chord until voices free up, never drop notes mid-chord.
+      const room = pad.maxPolyphony - pad.activeVoices;
+      if (room < notes.length) {
+        if (s !== 0 || room <= 0) return;
+        notes.length = room;
+      }
+      this.lastPadKey = key;
       const length = sixteenth * (m.steps - s) * 0.98;
       queueMicrotask(() => {
         if (pad.disposed) return;
