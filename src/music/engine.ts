@@ -43,7 +43,8 @@ import { SamplePlayer, SynthPlayer, type NoteTap, type Player, type VoiceLimits 
 import { Looper } from './looper';
 import { MidiOut } from './midi';
 import { Groove, type GrooveChord } from './groove';
-import { ChordPart, STYLE_BY_FINGERS, STYLE_LABEL, chordVoicing, degreeChord, degreeFromFingers, type ChordStyle } from './chords';
+import { ChordPart, STYLE_BY_FINGERS, STYLE_LABEL, chordVoicing, degreeChord, degreeFromFingers, type ChordStyle, type PartClock, type PartContext } from './chords';
+import { MelodyPerformer, harmonyNote, resolveTechnique, soundingChord, voiceFor, type Technique } from './technique';
 import { MasterRecorder } from './recorder';
 import { MobileAudioUnlock } from './unlock';
 import {
@@ -169,6 +170,14 @@ interface Voice {
   chordId: string;
   /** Last chord voicing (before any octave shift), kept for voice leading into the next chord. */
   lastVoicing: number[];
+  /** Melody line played the instrument's way (slides, legato, pedal, harmony). */
+  mel: MelodyPerformer;
+  /** Technique cache: valid for this instrument under this settings object. */
+  tech: Technique | null;
+  techFor: string;
+  techSettings: Settings | null;
+  /** Context handed to the chord part (reused, no per-frame allocation). */
+  partCtx: PartContext;
 }
 
 function makeVoiceState(voice: VoiceId, instrument: string): VoiceState {
@@ -269,6 +278,8 @@ class Engine implements MusicEngine {
   /** The chord a hand is playing (chords mode / chord role) this frame, for the metrics. */
   private playedChord: Chord | null = null;
   private playedDegree = 0;
+  /** Bumped when settings change how chords are voiced (forces a re-voice of a held chord). */
+  private techRev = 0;
 
   // Metrics
   private readonly m: MusicMetrics = {
@@ -314,6 +325,17 @@ class Engine implements MusicEngine {
   private analysedAt = -1;
 
   private readonly onGesture = (): void => this.resumeIfNeeded();
+  /** The Transport as the chord parts see it. */
+  private readonly partClock: PartClock = {
+    now: () => this.now(),
+    stepAt: (time) => {
+      const ctx = this.ctx;
+      if (!ctx || this.clockId === null || ctx.transport.state !== 'started') return NaN;
+      const t = ctx.transport;
+      return t.getTicksAtTime(time) / (t.PPQ / 4);
+    },
+    locked: () => !!this.groove?.isRunning || !!this.looperImpl?.needsClock,
+  };
   private readonly emptyLooper: LooperState = {
     bars: DEFAULT_SETTINGS.loopBars,
     phase: 'idle',
@@ -353,9 +375,18 @@ class Engine implements MusicEngine {
       part: new ChordPart(
         () => holder.v?.player ?? null,
         (midi) => this.countOnset(midi),
+        this.partClock,
       ),
       chordId: '',
       lastVoicing: [],
+      mel: new MelodyPerformer(
+        () => holder.v?.player ?? null,
+        (midi) => this.countOnset(midi),
+      ),
+      tech: null,
+      techFor: '',
+      techSettings: null,
+      partCtx: { play: 'block', tech: null as unknown as Technique, settings: DEFAULT_SETTINGS, bass: false, chord: null },
     };
     holder.v = v;
     return v;
@@ -543,7 +574,7 @@ class Engine implements MusicEngine {
     const s = this.settings;
     const chords = s.mode === 'chords' || s.leftHand === 'chords';
     // Nothing plays in a background tab: the clock (beat, arpeggios, loops) waits for the page.
-    const need = !document.hidden && (s.groove || (chords && s.chordPlay === 'arp') || !!this.looperImpl?.needsClock);
+    const need = !document.hidden && (s.groove || (chords && s.chordPlay === 'arp') || this.techniqueNeedsClock(s) || !!this.looperImpl?.needsClock);
     const t = ctx.transport;
     if (Math.abs(t.bpm.value - s.tempo) > 0.01) t.bpm.setValueAtTime(s.tempo, ctx.currentTime);
     if (need) {
@@ -567,6 +598,37 @@ class Engine implements MusicEngine {
         this.stopClock();
       });
     }
+  }
+
+  /** Strum patterns and moving bass lines play in time even without the beat. */
+  private techniqueNeedsClock(s: Settings): boolean {
+    const chords = s.mode === 'chords' || s.leftHand === 'chords';
+    if (!chords) return false;
+    const strum = s.chordPlay === 'strum';
+    const bassLine = s.mode === 'chords' && (s.bassPattern === 'root-fifth' || s.bassPattern === 'octave' || s.bassPattern === 'walking');
+    return strum || bassLine;
+  }
+
+  /** The technique a voice plays with (cached per instrument and settings object). */
+  private techFor(v: Voice): Technique {
+    const spec = this.specFor(v);
+    if (!v.tech || v.techFor !== spec.id || v.techSettings !== this.settings) {
+      v.tech = resolveTechnique(spec, this.settings);
+      v.techFor = spec.id;
+      v.techSettings = this.settings;
+    }
+    return v.tech;
+  }
+
+  /** Context for a voice's chord part this frame. */
+  private partContext(v: Voice, play: ChordPlay, bass: boolean, chord: Chord | null): PartContext {
+    const c = v.partCtx;
+    c.play = play;
+    c.tech = this.techFor(v);
+    c.settings = this.settings;
+    c.bass = bass;
+    c.chord = chord;
+    return c;
   }
 
   private stopClock(): void {
@@ -599,9 +661,12 @@ class Engine implements MusicEngine {
     const sixteenth = this.sixteenth();
     this.groove!.schedule(step, time, sixteenth);
     const s = this.settings;
-    const beatStrum = this.groove!.isRunning;
-    if (s.mode === 'chords') this.lead.part.onGrid(step, time, s.chordPlay, sixteenth, beatStrum);
-    else if (s.leftHand === 'chords') this.bass.part.onGrid(step, time, s.chordPlay, sixteenth, beatStrum);
+    if (s.mode === 'chords') {
+      this.lead.part.onGrid(step, time, sixteenth);
+      this.bass.part.onGrid(step, time, sixteenth);
+    } else if (s.leftHand === 'chords') {
+      this.bass.part.onGrid(step, time, sixteenth);
+    }
     this.looperImpl?.onGrid(step, time, sixteenth);
   }
 
@@ -651,6 +716,7 @@ class Engine implements MusicEngine {
       this.refreshDiatonic(s);
     }
     if (changed('trigger')) this.mouthGate = false;
+    if (changed('playStyle') || changed('voicing')) this.techRev++;
     if (changed('lead')) this.setInstrument(this.lead, s.lead);
     if (changed('bass') || changed('leftHand') || changed('mode')) {
       this.bass.wanted = s.bass;
@@ -781,6 +847,7 @@ class Engine implements MusicEngine {
     v.player = next;
     v.handle = -1;
     v.midi = null;
+    v.mel.reset();
     v.part.reset();
     v.chordId = '';
     v.retrigger = wasSounding;
@@ -1047,7 +1114,7 @@ class Engine implements MusicEngine {
     const hv = this.handVolume;
 
     if (!gate) {
-      if (v.handle >= 0) this.releaseNote(v, t, spec.release);
+      if (v.handle >= 0 || v.mel.extraCount) this.releaseNote(v, t, spec.release);
       st.gate = false;
       st.midi = null;
       st.note = '';
@@ -1076,19 +1143,16 @@ class Engine implements MusicEngine {
       this.startNote(v, target, velocity, t);
     } else if (glideScale) {
       if (v.midi === null || Math.abs(target - v.midi) > 0.005) {
-        player!.glide(v.handle, target, t);
+        v.mel.glide(target, t, this.harmonyFor(v));
         if (v.midi !== null && Math.round(target) !== Math.round(v.midi)) this.countOnset(target, st);
         v.midi = target;
       }
     } else if (target !== v.midi) {
-      if (spec.sustained && player!.glide(v.handle, target, t)) {
-        v.midi = target;
-        this.countOnset(target, st);
-      } else {
-        // Samples: release the old note cleanly and attack the new one. Struck notes ring a bit.
-        this.releaseNote(v, t, spec.sustained ? 0.07 : Math.max(spec.release, 0.3));
-        this.startNote(v, target, velocity, t);
-      }
+      // The instrument's way from note to note: synth glide, slide / hammer-on, legato bend, or a
+      // fresh attack (the pedal may keep the old note ringing).
+      if (v.mel.change(target, velocity, t, this.techFor(v), this.harmonyFor(v))) this.countOnset(target, st);
+      v.handle = v.mel.handle;
+      v.midi = v.mel.midi;
     }
 
     const level = spec.sustained ? v.dyn * hv : hv;
@@ -1102,17 +1166,24 @@ class Engine implements MusicEngine {
   }
 
   private startNote(v: Voice, midi: number, velocity: number, t: number): void {
-    const h = v.player ? v.player.start(midi, velocity, t) : -1;
-    v.handle = h;
-    v.midi = h >= 0 ? midi : null;
-    if (h >= 0) this.countOnset(midi, v.state);
+    const started = v.mel.start(midi, velocity, t, this.techFor(v), this.harmonyFor(v));
+    v.handle = v.mel.handle;
+    v.midi = v.mel.midi;
+    if (started) this.countOnset(midi, v.state);
   }
 
   private releaseNote(v: Voice, t: number, release: number): void {
-    if (v.handle >= 0) v.player?.stop(v.handle, t, release);
+    v.mel.release(t, release);
     v.handle = -1;
     v.midi = null;
   }
+
+  /** Harmony notes for the lead's melody (diatonic, in the key), none for the bass voice. */
+  private harmonyFor(v: Voice): (midi: number) => number | null {
+    return v === this.lead && this.settings.harmony !== 'off' ? this.harmonyNote : this.noHarmony;
+  }
+  private readonly harmonyNote = (midi: number): number | null => harmonyNote(midi, this.settings.harmony, this.settings.key, this.settings.scale);
+  private readonly noHarmony = (): null => null;
 
   private countOnset(midi: number, state?: VoiceState): void {
     if (state) state.onset = true;
@@ -1126,7 +1197,7 @@ class Engine implements MusicEngine {
 
   /** Releases whatever a voice is playing (melody note and chord). */
   private silenceVoice(v: Voice, t: number, release: number): void {
-    if (v.handle >= 0) this.releaseNote(v, t, release);
+    if (v.handle >= 0 || v.mel.extraCount) this.releaseNote(v, t, release);
     if (v.part.active) v.part.stop(t, release);
     v.chordId = '';
     const st = v.state;
@@ -1136,13 +1207,23 @@ class Engine implements MusicEngine {
     st.velocity = 0;
   }
 
-  /** Plays a chord (id + voicing) on a voice, or stops it (id = ''). */
-  private playChord(v: Voice, id: string, notes: readonly number[], velocity: number, t: number, play: ChordPlay): void {
+  /** Plays a chord (id + voicing) on a voice, or stops it (id = ''). `bass`: a bass line on the
+   *  chord root (notes = [root]) following the bass pattern. */
+  private playChord(v: Voice, id: string, notes: readonly number[], velocity: number, t: number, play: ChordPlay, bass = false, chord: Chord | null = null): void {
     const force = v.retrigger;
     v.retrigger = false;
     v.chordId = id;
-    if (v.part.update(id || null, notes, velocity, play, t, force)) v.state.onset = true;
+    if (v.part.update(id || null, notes, velocity, t, force, this.partContext(v, play, bass, chord))) v.state.onset = true;
     if (!v.part.active) v.chordId = '';
+  }
+
+  /** Chord notes for a voice, played the instrument's way (guitar shapes, open strings...). */
+  private voiceChordFor(v: Voice, chord: Chord, style: ChordStyle, center: number, lo: number, hi: number): number[] {
+    const tech = this.techFor(v);
+    // The 'open' chord style (five fingers) keeps its own wide shape, except on a guitar.
+    if (style === 'open' && tech.voicing !== 'guitar' && tech.voicing !== 'power') return chordVoicing(chord, style, v.lastVoicing, center, lo, hi);
+    if (tech.voicing === 'close' && style !== 'open') return chordVoicing(chord, style, v.lastVoicing, center, lo, hi);
+    return voiceFor({ chord, kind: tech.voicing, prev: v.lastVoicing, center, lo, hi, preferOpen: tech.openShapes });
   }
 
   private rootIn(notes: readonly number[], root: number): number {
@@ -1176,17 +1257,20 @@ class Engine implements MusicEngine {
       v.channel?.set(t, 0.8, 0, spec.sustained ? 0 : 1);
       return;
     }
-    const chord = degreeChord(s.key, s.scale, degree - 1, 'triad', false);
-    const id = `${chord.root}${chord.type.suffix}`;
+    const picked = degreeChord(s.key, s.scale, degree - 1, 'triad', false);
+    const id = `${picked.root}${picked.type.suffix}:${this.techRev}`;
     let notes: readonly number[] = v.part.voicing;
     if (id !== v.chordId || !notes.length) {
       const lo = Math.max(spec.range[0], 40);
       const hi = Math.max(lo + 12, Math.min(spec.range[1], 69));
-      notes = chordVoicing(chord, 'triad', v.lastVoicing, 52, lo, hi);
+      // Guitar shapes and wide voicings need the instrument's real register.
+      const wide = this.techFor(v).voicing !== 'close';
+      notes = this.voiceChordFor(v, picked, 'triad', 52, wide ? spec.range[0] : lo, wide ? Math.min(spec.range[1], 84) : hi);
       v.lastVoicing = notes.slice();
     }
+    const chord = soundingChord(picked, notes);
     const velocity = spec.sustained ? 1 : clamp01(dynTarget) * 0.85;
-    this.playChord(v, id, notes, velocity, t, s.chordPlay);
+    this.playChord(v, id, notes, velocity, t, s.chordPlay, false, chord);
     this.playedChord = chord;
     this.playedDegree = degree;
 
@@ -1280,32 +1364,37 @@ class Engine implements MusicEngine {
       return;
     }
 
-    const chord = degreeChord(s.key, s.scale, degree - 1, style, this.borrowed);
+    const picked = degreeChord(s.key, s.scale, degree - 1, style, this.borrowed);
     const flats = usesFlats(s.key, s.scale);
     const shift = octaveDown ? -12 : 0;
-    const id = `${chord.root}${chord.type.suffix}:${style}:${shift}`;
+    const id = `${picked.root}${picked.type.suffix}:${style}:${shift}:${this.techRev}`;
     let notes: readonly number[] = lead.part.voicing;
     if (id !== lead.chordId || !notes.length) {
       const lo = Math.max(leadSpec.range[0], 36);
       const hi = Math.max(lo + 14, Math.min(leadSpec.range[1], 88));
-      const base = chordVoicing(chord, style, lead.lastVoicing, 60 + 12 * s.octave, lo, hi);
+      const base = this.voiceChordFor(lead, picked, style, 60 + 12 * s.octave, lo, hi);
       lead.lastVoicing = base;
       const shifted = base.map((n) => n + shift).filter((n) => n >= leadSpec.range[0] && n <= leadSpec.range[1]);
-      notes = shifted.length ? shifted : base;
+      notes = shifted.length >= Math.min(2, base.length) ? shifted : base;
     }
+    // What actually sounds (a distortion guitar plays the power chord).
+    const chord = soundingChord(picked, notes);
     const velocity = leadSpec.sustained ? 1 : clamp01(dynTarget);
-    this.playChord(lead, id, notes, velocity, t, s.chordPlay);
+    this.playChord(lead, id, notes, velocity, t, s.chordPlay, false, chord);
 
-    // Bass: the chord root an octave or two below the chord.
+    // Bass: the chord root an octave or two below the chord, played per the bass pattern.
     const low = Math.min(...notes);
     let root = low - mod12(low - chord.root) - 12;
     while (root > 47) root -= 12;
     while (root < bassSpec.range[0]) root += 12;
     while (root > bassSpec.range[1]) root -= 12;
-    this.playChord(bass, `${root}`, [root], bassSpec.sustained ? 1 : clamp01(dynTarget) * 0.9, t, 'block');
+    if (s.bassPattern === 'off') this.playChord(bass, '', [], 0, t, 'block', true);
+    else this.playChord(bass, `${root}:${s.bassPattern}`, [root], bassSpec.sustained ? 1 : clamp01(dynTarget) * 0.9, t, 'block', true, chord);
 
     this.playedChord = chord;
     this.playedDegree = degree;
+    // Palm mute: damped strings are darker.
+    if (this.techFor(lead).palmMute) bright *= 0.62;
     const leadLevel = leadSpec.sustained ? lead.dyn * hv : hv;
     const bassLevel = bassSpec.sustained ? lead.dyn * hv : hv;
     lead.channel!.set(t, bright, 0, leadLevel * leadLevel);
@@ -1318,10 +1407,11 @@ class Engine implements MusicEngine {
     ls.velocity = leadSpec.sustained ? lead.dyn : velocity;
     ls.brightness = bright;
     const bs = bass.state;
-    bs.gate = true;
-    bs.midi = root;
-    bs.note = noteName(root, flats);
-    bs.velocity = ls.velocity;
+    const bassMidi = bass.part.active ? (bass.part.bassMidi ?? root) : null;
+    bs.gate = bassMidi !== null;
+    bs.midi = bassMidi;
+    bs.note = bassMidi === null ? '' : noteName(bassMidi, flats);
+    bs.velocity = bassMidi === null ? 0 : ls.velocity;
     bs.brightness = bright;
     this.expression = clamp01((leadSpec.sustained ? lead.dyn : dynTarget) * hv);
   }
@@ -1342,6 +1432,7 @@ class Engine implements MusicEngine {
     };
     for (const v of [this.lead, this.bass]) {
       if (v.handle >= 0 && v.midi !== null) push(v.midi);
+      v.mel.forEachExtra(t, push);
       v.part.forEachSounding(push);
     }
     active.sort((a, b) => a - b);
