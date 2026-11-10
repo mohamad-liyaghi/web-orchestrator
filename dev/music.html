@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:," />
+    <title>Music engine harness</title>
+    <style>
+      body { margin: 0; padding: 16px; background: #05060a; color: #d7e3ff; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      h1 { font-size: 15px; margin: 0 0 12px; color: #7dd3fc; }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+      label { display: inline-flex; gap: 6px; align-items: center; }
+      button, select { background: #111827; color: inherit; border: 1px solid #334155; border-radius: 6px; padding: 5px 9px; font: inherit; }
+      button:hover { border-color: #7dd3fc; }
+      pre { background: #0b1020; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; white-space: pre-wrap; margin: 8px 0; }
+      #meter { height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; width: 240px; }
+      #meter > div { height: 100%; width: 0; background: linear-gradient(90deg, #22d3ee, #e879f9); }
+    </style>
+  </head>
+  <body>
+    <h1>Music engine harness (mock tracker)</h1>
+    <div class="row">
+      <button id="start">Start</button>
+      <button id="stop">Stop</button>
+      <button id="panic">Panic</button>
+      <button id="rec">Record</button>
+      <button id="selftest">Run self-test</button>
+      <div id="meter"><div></div></div>
+    </div>
+    <div class="row">
+      <label>Lead <select id="lead"></select></label>
+      <label>Bass <select id="bass"></select></label>
+      <label>Mode <select id="mode"><option>melody</option><option>chords</option></select></label>
+      <label>Left hand <select id="leftHand"><option>volume</option><option>bass</option><option>chords</option><option>off</option></select></label>
+      <label>Chord play <select id="chordPlay"><option>block</option><option>strum</option><option>arp</option></select></label>
+      <label>Trigger <select id="trigger"><option>mouth</option><option>pinch</option><option>always</option></select></label>
+      <label>Scale <select id="scale"></select></label>
+      <label>Beat <select id="beat"><option>pop</option><option>lofi</option><option>rock</option><option>house</option><option>metronome</option></select></label>
+      <label><input type="checkbox" id="groove" /> Groove</label>
+      <label><input type="checkbox" id="lowPower" /> Low power</label>
+    </div>
+    <pre id="load">load: -</pre>
+    <pre id="out">Press Start.</pre>
+    <script type="module" src="./music.ts"></script>
+  </body>
+</html>
