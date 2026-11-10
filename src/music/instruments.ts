@@ -101,6 +101,9 @@ const ROWS: Row[] = [
   ['shamisen', 'Shamisen', 'world', false, [50, 86], '#fecaca', 'Sh', 'Snappy three-string lute of Japan', { ...S('shamisen', [1.4, 0.9]), release: 0.15 }],
   ['banjo', 'Banjo', 'world', false, [48, 84], '#fde047', 'Bj', 'Twangy bluegrass banjo', { ...S('banjo', [1.4, 0.9]), release: 0.15, trim: -3 }],
   ['shakuhachi', 'Shakuhachi', 'world', true, [60, 91], '#86efac', 'Sk', 'Bamboo flute, breathy and meditative', { ...L('shakuhachi', [0.6, 1.1]), release: 0.3, trim: -6.5 }],
+  // No duduk in General MIDI: the English horn is the closest real double reed, made warmer and
+  // more vocal with a slow release and a gentle built-in vibrato, over the duduk's own range.
+  ['duduk', 'Armenian Duduk', 'world', true, [55, 79], '#c2410c', 'Dk', 'Apricot-wood double reed, warm and mournful', { ...L('english_horn', [0.5, 1.0]), release: 0.45, vibrato: 0.22 }],
   // Synth (zero download)
   ['theremin', 'Theremin', 'synth', true, [48, 96], '#22d3ee', '〰', 'Eerie gliding sine with a sci-fi wobble', { synth: 'theremin', release: 0.25, trim: -12, vibrato: 0.22 }],
   ['analog-lead', 'Analog Lead', 'synth', true, [36, 96], '#f472b6', '⟋', 'Fat detuned saw lead with a filter bite', { synth: 'analog-lead', release: 0.2, trim: -6 }],
@@ -157,6 +160,7 @@ const SIZE_KB: Record<string, number> = {
   'shamisen': 124,
   'banjo': 113,
   'shakuhachi': 160,
+  'duduk': 116,
 };
 
 export const INSTRUMENT_SPECS: readonly InstrumentSpec[] = ROWS.map(
