@@ -314,7 +314,7 @@ interface SynthSlot {
 interface VoicePart {
   cancel?: (after: number) => unknown;
   stop?: (time: number) => unknown;
-  _state?: { getValueAtTime(time: number): string | undefined };
+  _state?: { getValueAtTime(time: number): string | undefined; getNextState(state: string, time: number): { time: number } | undefined };
 }
 
 /** True when the voice's oscillator is not running at `time` (its last note has fully ended). */
@@ -408,16 +408,22 @@ export class SynthPlayer implements Player {
     const v = slot.voice as unknown as Record<string, VoicePart | undefined>;
     try {
       for (const k of ['envelope', 'filterEnvelope', 'modulationEnvelope']) v[k]?.cancel?.(time);
-      if (oscillatorSilentAt(v.oscillator, time, slot.fresh)) {
-        // The voice was silent: stopping its oscillators now also removes their scheduled start
-        // (a later note on this voice must not land before it), without a sound.
-        for (const k of ['oscillator', '_modulator']) v[k]?.stop?.(time);
-        slot.freeAt = time;
-      } else {
-        // It still rings from an earlier note: let that tail fade out.
-        slot.voice.triggerRelease(time);
-        slot.freeAt = time + this.spec.release * 1.5 + 0.05;
+      const silent = oscillatorSilentAt(v.oscillator, time, slot.fresh);
+      // A voice still ringing from an earlier note lets that tail fade out.
+      if (!silent) slot.voice.triggerRelease(time);
+      // The oscillators must not keep the withdrawn start: a later note on this voice may be
+      // scheduled before it, which Tone rejects. Stopping at the moment they fall silent anyway
+      // (now, or where the earlier note's tail ends) clears everything scheduled after.
+      for (const k of ['oscillator', 'modulation']) {
+        const osc = v[k];
+        if (!osc?.stop) continue;
+        if (oscillatorSilentAt(osc, time, slot.fresh)) osc.stop(time);
+        else {
+          const end = osc._state?.getNextState('stopped', time);
+          if (end && end.time < slot.t0) osc.stop(end.time);
+        }
       }
+      slot.freeAt = silent ? time : time + this.spec.release * 1.5 + 0.05;
       slot.last = time;
     } catch {
       // Fall back to an ordinary release right after the attack.
