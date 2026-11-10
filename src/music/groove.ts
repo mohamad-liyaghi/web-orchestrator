@@ -246,8 +246,15 @@ export class Groove {
       const notes = c.intervals
         .slice(0, this.lowPower ? 2 : 3)
         .map((i) => midiToFreq(48 + c.root + i + (c.root + i > 7 ? -12 : 0)));
-      this.pad.releaseAll(time);
-      this.pad.triggerAttackRelease(notes, sixteenth * (16 - s) * 0.98, time, 0.45);
+      // Run after the Transport callback returns (same audio time): when the PolySynth has to build
+      // a voice, Tone's constructors schedule without a time and warn inside a Transport callback.
+      const pad = this.pad;
+      const length = sixteenth * (16 - s) * 0.98;
+      queueMicrotask(() => {
+        if (pad.disposed) return;
+        pad.releaseAll(time);
+        pad.triggerAttackRelease(notes, length, time, 0.45);
+      });
     }
   }
 }
