@@ -1,4 +1,4 @@
-import type { HandState, InstrumentDef, Lane, Settings, StageRenderData, VoiceState } from '../types';
+import type { HandState, InstrumentDef, Lane, LearnState, Settings, StageRenderData, VoiceState } from '../types';
 import { GESTURE_GLYPH } from '../gestures';
 import { mouthThresholds } from '../settings';
 import { HAND_CONNECTIONS } from './illustrations';
@@ -22,6 +22,9 @@ const FONT_LANE_ON = '700 12px "JetBrains Mono Variable", "JetBrains Mono", ui-m
 const FONT_GLYPH = '13px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 const FONT_GLYPH_BIG = '16px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 const FONT_TAG = '700 10px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
+/** Learn mode target colour: not used by the hand roles, so the lane to hit never reads as "playing". */
+const TARGET = '#b6ff5c';
+const TARGET_DASH: number[] = [10, 8];
 const MAX_PARTICLES = 160;
 const MAX_SPRITES = 48;
 
@@ -122,6 +125,13 @@ export class HudRenderer {
   private readonly face = { seen: false, alpha: 0, x: 0, y: 0, w: 0, h: 0, init: false, noFaceMs: 0 };
   private lanesAlpha = 0;
   private tilt = false;
+  /** Learn mode: screen y / height of the target lane (NaN = none) and the last hit time. */
+  private targetY = Number.NaN;
+  private targetH = 0;
+  private targetHitT = 0;
+  private learnNow = 0;
+  private targetNote = '';
+  private targetNoteW = 0;
   /** prefers-reduced-motion: no particle trail, no expanding pulse rings. */
   private readonly reduced = prefersReducedMotion();
   private sprites = new Map<string, HTMLCanvasElement>();
@@ -165,6 +175,7 @@ export class HudRenderer {
   /** Fonts finished loading: label widths must be measured again. */
   invalidateText(): void {
     for (const s of this.slots) s.dirty = true;
+    this.targetNote = '';
     this.laneKey = '';
   }
 
@@ -231,6 +242,7 @@ export class HudRenderer {
     if (settings.lanes && !chordsMode && this.lanesAlpha > 0.01) {
       this.drawLanes(data.lanes.lead, data.lanes.bass, settings, sy, oy, lead, bass, leadColor, bassColor);
     }
+    this.drawLearnTarget(data.learn ?? null, data.lanes.lead, chordsMode, sy, oy, now);
 
     // ---- hands --------------------------------------------------------------------------
     for (const s of this.slots) s.seen = false;
@@ -836,7 +848,112 @@ export class HudRenderer {
       ctx.arc(tx, ty, r + (1 - pulse) * 30, 0, Math.PI * 2);
       ctx.stroke();
     }
+    if (slot.role === 'lead' && !Number.isNaN(this.targetY)) this.drawTargetGuide(tx, ty, r, alpha);
     ctx.globalAlpha = 1;
+  }
+
+  // ---- learn mode -----------------------------------------------------------------------
+
+  /** The lane to hit: a pulsing band with marching dashes and a NEXT tag, drawn even with lanes off. */
+  private drawLearnTarget(learn: LearnState | null, lanes: readonly Lane[], chordsMode: boolean, sy: number, oy: number, now: number): void {
+    this.targetY = Number.NaN;
+    this.learnNow = now;
+    const target = learn && !learn.done && !chordsMode ? learn.target : null;
+    const lane = target && target.laneIndex >= 0 ? lanes[target.laneIndex] : undefined;
+    if (!lane) return;
+    this.targetHitT = learn!.lastHitT;
+    const ctx = this.ctx;
+    const y = lane.y * sy + oy;
+    const hh = Math.max(12, lane.h * sy);
+    this.targetY = y;
+    this.targetH = hh;
+    const pulse = this.reduced ? 0.6 : 0.5 + 0.5 * Math.sin(now / 210);
+    ctx.globalAlpha = 0.1 + 0.12 * pulse;
+    ctx.fillStyle = TARGET;
+    ctx.fillRect(0, y - hh / 2, this.w, hh);
+    ctx.globalAlpha = 0.45 + 0.4 * pulse;
+    ctx.strokeStyle = TARGET;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash(TARGET_DASH);
+    ctx.lineDashOffset = this.reduced ? 0 : -((now / 28) % 18);
+    ctx.beginPath();
+    ctx.moveTo(0, Math.round(y - hh / 2) + 0.5);
+    ctx.lineTo(this.w, Math.round(y - hh / 2) + 0.5);
+    ctx.moveTo(0, Math.round(y + hh / 2) - 0.5);
+    ctx.lineTo(this.w, Math.round(y + hh / 2) - 0.5);
+    ctx.stroke();
+    ctx.setLineDash(EMPTY_DASH);
+    ctx.lineDashOffset = 0;
+    // NEXT tag with the note name at the left edge.
+    ctx.font = FONT_LANE_ON;
+    if (target!.note !== this.targetNote) {
+      this.targetNote = target!.note;
+      this.targetNoteW = ctx.measureText(target!.note).width;
+    }
+    const chipW = this.targetNoteW + 46;
+    const chipH = Math.min(22, hh + 6);
+    const cx = 10;
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = 'rgba(5,6,10,0.82)';
+    roundRect(ctx, cx, y - chipH / 2, chipW, chipH, chipH / 2);
+    ctx.fill();
+    ctx.strokeStyle = TARGET;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = TARGET;
+    ctx.font = FONT_TAG;
+    ctx.fillText('NEXT', cx + 9, y + 0.5);
+    ctx.font = FONT_LANE_ON;
+    ctx.fillStyle = WHITE;
+    ctx.fillText(target!.note, cx + 40, y + 0.5);
+    ctx.globalAlpha = 1;
+  }
+
+  /** On the lead reticle: a chevron and a dashed guide toward the target lane, or a lock ring on it. */
+  private drawTargetGuide(tx: number, ty: number, r: number, alpha: number): void {
+    const ctx = this.ctx;
+    const dy = this.targetY - ty;
+    ctx.strokeStyle = TARGET;
+    ctx.fillStyle = TARGET;
+    const sinceHit = this.learnNow - this.targetHitT;
+    if (!this.reduced && this.targetHitT > 0 && sinceHit >= 0 && sinceHit < 450) {
+      const k = sinceHit / 450;
+      ctx.globalAlpha = alpha * (1 - k);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(tx, ty, r + 6 + k * 34, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (Math.abs(dy) <= this.targetH / 2) {
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(tx, ty, r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+      return;
+    }
+    const dir = dy > 0 ? 1 : -1;
+    const from = ty + dir * (r + 10);
+    ctx.globalAlpha = alpha * 0.45;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash(TARGET_DASH);
+    ctx.beginPath();
+    ctx.moveTo(tx, from);
+    ctx.lineTo(tx, this.targetY);
+    ctx.stroke();
+    ctx.setLineDash(EMPTY_DASH);
+    const bob = this.reduced ? 0 : Math.sin(this.learnNow / 160) * 3;
+    const ay = ty + dir * (r + 22 + bob);
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.moveTo(tx - 9, ay - dir * 6);
+    ctx.lineTo(tx, ay + dir * 5);
+    ctx.lineTo(tx + 9, ay - dir * 6);
+    ctx.lineTo(tx, ay - dir * 1);
+    ctx.closePath();
+    ctx.fill();
   }
 
   private degreeSlot(): Slot | null {

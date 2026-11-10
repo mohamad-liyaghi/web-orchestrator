@@ -7,6 +7,7 @@ import type {
   LoadProgress,
   ScaleDef,
   Settings,
+  SongInfo,
   StageCallbacks,
   StageRenderData,
   StageView,
@@ -23,6 +24,7 @@ import { icon, logoMark } from './icons';
 import { MetricsStrip } from './metrics';
 import { buildHelp } from './help';
 import { ChordDeck } from './chords';
+import { LearnOverlay, LearnPane } from './learn';
 
 type FrameState = FrameVerdict | 'no-face' | 'waiting';
 
@@ -73,6 +75,10 @@ class Stage implements StageView {
   private readonly metrics: MetricsStrip;
   private readonly chordDeck = new ChordDeck();
   private readonly dock: Dock;
+  private readonly learnPane: LearnPane | null;
+  private readonly learnOverlay: LearnOverlay;
+  private songs: readonly SongInfo[] = [];
+  private learning = false;
   private readonly ro: ResizeObserver;
   private readonly bottomRo: ResizeObserver;
   private bottomH = -1;
@@ -171,10 +177,26 @@ class Stage implements StageView {
     const helpBtn = this.iconButton('help', 'Help and gestures (H)', () => this.toggleHelp());
     this.fsBtn = fullscreenSupported() ? this.iconButton('expand', 'Fullscreen (F)', () => void this.toggleFullscreen()) : null;
     if (this.fsBtn) this.fsBtn.classList.add('hide-sm');
+    // Learn mode entry (only when the app handles it).
+    const onLearn = callbacks.onLearn?.bind(callbacks);
+    this.learnPane = onLearn
+      ? new LearnPane({
+          onPick: (id, mode) => {
+            onLearn(id, mode);
+            this.dock.close();
+          },
+          onStop: () => onLearn(null),
+        })
+      : null;
+    this.learnOverlay = new LearnOverlay({ onLearn: (id, mode) => onLearn?.(id, mode), songs: () => this.songs });
+    const learnBtn = onLearn
+      ? this.iconButton('learn', 'Learn a song', () => (this.dock.isOpen && this.dock.activeTab === 'learn' ? this.dock.close() : this.dock.open('learn')))
+      : null;
+    learnBtn?.classList.add('learn-btn');
     const settingsBtn = this.iconButton('settings', 'Settings', () => (this.dock.isOpen ? this.dock.close() : this.dock.open('play')));
     const exitBtn = this.iconButton('exit', 'Exit to the start page', () => callbacks.onExit());
     exitBtn.classList.add('exit-btn');
-    const actions = h('div', { class: 'tb-actions' }, this.recBtn, helpBtn, this.fsBtn, settingsBtn, exitBtn);
+    const actions = h('div', { class: 'tb-actions' }, this.recBtn, learnBtn, helpBtn, this.fsBtn, settingsBtn, exitBtn);
     const topbar = h('header', { class: 'topbar' }, brand, status, actions);
 
     // ---- coach + flash ------------------------------------------------------------------
@@ -186,7 +208,7 @@ class Stage implements StageView {
 
     // ---- bottom: metrics + dock ---------------------------------------------------------
     this.metrics = new MetricsStrip(this.instruments);
-    this.dock = new Dock({ callbacks, toast: (m) => this.toast(m) });
+    this.dock = new Dock({ callbacks, toast: (m) => this.toast(m), learnPane: this.learnPane?.el });
     const bottom = h('div', { class: 'bottom' }, this.chordDeck.el, this.metrics.el, this.dock.dock);
 
     // ---- boot overlay -------------------------------------------------------------------
@@ -219,7 +241,21 @@ class Stage implements StageView {
     this.toasts = h('div', { class: 'toasts', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'false' });
     this.errorLayer = h('div', { class: 'stage-error', hidden: true });
 
-    this.el.append(this.viewport, topbar, this.coach, this.flash, bottom, this.dock.scrim, this.dock.sheet, this.boot, this.help, this.errorLayer, this.toasts);
+    this.el.append(
+      this.viewport,
+      topbar,
+      this.learnOverlay.panel,
+      this.coach,
+      this.flash,
+      bottom,
+      this.learnOverlay.card,
+      this.dock.scrim,
+      this.dock.sheet,
+      this.boot,
+      this.help,
+      this.errorLayer,
+      this.toasts,
+    );
     root.append(this.el);
 
     // ---- wiring -------------------------------------------------------------------------
@@ -269,6 +305,11 @@ class Stage implements StageView {
     this.chordDeck.setVisible(s.mode === 'chords');
     setClass(this.el, 'is-chords', s.mode === 'chords');
     this.syncLite();
+  }
+
+  setSongs(list: readonly SongInfo[]): void {
+    this.songs = list;
+    this.learnPane?.setSongs(list);
   }
 
   setBootProgress(p: LoadProgress | null): void {
@@ -326,6 +367,7 @@ class Stage implements StageView {
     this.updateStatus(data, now);
     this.updateCoach(data, dt);
     this.updateFlash(data, now);
+    this.updateLearn(data);
     if (this.recording) this.recTime.set(formatClock(now - this.recStart));
     if (this.hud.stats.degraded !== this.lite) this.syncLite();
     if (now - this.statsAt > 1000) {
@@ -475,6 +517,17 @@ class Stage implements StageView {
     setClass(this.coach, 'is-on', !!text);
   }
 
+  private updateLearn(data: StageRenderData): void {
+    const st = data.learn ?? null;
+    this.learnOverlay.update(st);
+    const on = !!st;
+    if (on !== this.learning) {
+      this.learning = on;
+      setClass(this.el, 'is-learning', on);
+    }
+    this.learnPane?.setActive(st?.songId ?? null, st?.title ?? '');
+  }
+
   private updateFlash(data: StageRenderData, now: number): void {
     const g = data.lastGesture;
     if (g && g.t !== this.flashT) {
@@ -525,6 +578,7 @@ class Stage implements StageView {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape') {
       if (!this.help.hidden) this.toggleHelp(false);
+      else if (this.learnOverlay.escape()) return;
       else if (this.dock.isOpen) this.dock.close();
       else if (!this.errorLayer.hidden) this.errorLayer.hidden = true;
       return;

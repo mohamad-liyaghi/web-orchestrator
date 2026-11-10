@@ -19,12 +19,13 @@ import { FAMILIES, familyMeta } from './catalog';
 import { NOTE_NAMES, h, setClass, uid } from './dom';
 import { icon } from './icons';
 
-export type SheetTab = 'lead' | 'left' | 'play' | 'gestures' | 'display';
+export type SheetTab = 'lead' | 'left' | 'play' | 'learn' | 'gestures' | 'display';
 
 const TABS: ReadonlyArray<{ id: SheetTab; label: string }> = [
   { id: 'lead', label: 'Lead' },
   { id: 'left', label: 'Left hand' },
   { id: 'play', label: 'Play' },
+  { id: 'learn', label: 'Learn' },
   { id: 'gestures', label: 'Gestures' },
   { id: 'display', label: 'Setup' },
 ];
@@ -71,6 +72,8 @@ const GESTURE_NAME: Record<ActionGesture, string> = {
 interface DockDeps {
   callbacks: StageCallbacks;
   toast(message: string): void;
+  /** Content of the Learn tab; the tab is left out without it. */
+  learnPane?: HTMLElement;
 }
 
 interface CardRefs {
@@ -255,6 +258,7 @@ export class Dock {
     this.bindDrag(sheetHandle);
     const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Control sections' });
     for (const t of TABS) {
+      if (t.id === 'learn' && !deps.learnPane) continue;
       const tb = h('button', { type: 'button', class: 'tab', role: 'tab', 'aria-selected': 'false', id: uid('tab'), text: t.label });
       tb.addEventListener('click', () => this.open(t.id));
       this.tabButtons.set(t.id, tb);
@@ -264,8 +268,9 @@ export class Dock {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       e.preventDefault();
       e.stopPropagation();
-      const i = TABS.findIndex((t) => t.id === this.tab);
-      const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!;
+      const tabs = TABS.filter((t) => this.tabButtons.has(t.id));
+      const i = tabs.findIndex((t) => t.id === this.tab);
+      const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]!;
       this.open(next.id);
       this.tabButtons.get(next.id)?.focus();
     });
@@ -481,6 +486,8 @@ export class Dock {
       ),
     );
 
+    if (deps.learnPane) this.pane('learn', deps.learnPane);
+
     for (const [, p] of this.panes) body.append(p);
     this.open('lead', false);
     this.close();
@@ -490,6 +497,10 @@ export class Dock {
 
   get isOpen(): boolean {
     return this.openState;
+  }
+
+  get activeTab(): SheetTab {
+    return this.tab;
   }
 
   setInstruments(list: readonly InstrumentDef[], scales: readonly ScaleDef[]): void {

@@ -535,6 +535,8 @@ export interface StageView {
   render(data: StageRenderData): void;
   showError(err: AppError): void;
   toast(message: string): void;
+  /** Songs offered by Learn mode, with the best result stored on this device. */
+  setSongs(list: readonly SongInfo[]): void;
   destroy(): void;
 }
 
