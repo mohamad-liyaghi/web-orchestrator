@@ -206,6 +206,7 @@ class Engine implements MusicEngine {
   private bus: Gain | null = null;
   private reverbSend: Gain | null = null;
   private reverb: Convolver | null = null;
+  private reverbLow = false;
   private delaySend: Gain | null = null;
   private delay: FeedbackDelay | null = null;
   private delayTone: Filter | null = null;
@@ -402,8 +403,8 @@ class Engine implements MusicEngine {
     this.bus = new Gain(0.9).connect(this.comp);
     this.reverbSend = new Gain(0.3);
     this.bus.connect(this.reverbSend);
-    this.setReverb(false);
-    this.setDelay(true);
+    this.setReverb(this.settings.lowPower);
+    this.setDelay(!this.settings.lowPower);
 
     this.grooveSend = new Gain(0.12);
     this.grooveSend.connect(this.reverbSend);
@@ -433,6 +434,8 @@ class Engine implements MusicEngine {
   }
 
   private setReverb(lowPower: boolean): void {
+    if (this.reverb && this.reverbLow === lowPower) return;
+    this.reverbLow = lowPower;
     const ctx = this.ctx!;
     const old = this.reverb;
     const ir = lowPower ? impulse(ctx, 1.3, 3.2) : impulse(ctx, 2.6, 2.6);
@@ -573,7 +576,7 @@ class Engine implements MusicEngine {
     if (changed('lowPower')) {
       this.limits.sample = s.lowPower ? 6 : 10;
       this.limits.synth = s.lowPower ? 4 : 6;
-      if (a) this.setReverb(s.lowPower);
+      this.setReverb(s.lowPower);
       this.setDelay(!s.lowPower);
       this.groove!.setLowPower(s.lowPower);
     }
