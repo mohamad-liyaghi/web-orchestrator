@@ -172,7 +172,14 @@ export const CHORD_TYPES: readonly ChordType[] = [
   { suffix: 'm7b5', intervals: [0, 3, 6, 10], minor: true, numeral: 'ø7', complexity: 0.35 },
   { suffix: 'dim7', intervals: [0, 3, 6, 9], minor: true, numeral: '°7', complexity: 0.45 },
   { suffix: 'add9', intervals: [0, 2, 4, 7], minor: false, numeral: 'add9', complexity: 0.4 },
+  { suffix: 'madd9', intervals: [0, 2, 3, 7], minor: true, numeral: 'add9', complexity: 0.45 },
 ];
+
+/** Chord type with exactly these intervals (any order), if the dictionary has one. */
+export function chordTypeOf(intervals: readonly number[]): ChordType | undefined {
+  const key = [...new Set(intervals.map(mod12))].sort((a, b) => a - b).join(',');
+  return CHORD_TYPES.find((t) => t.intervals.join(',') === key);
+}
 
 const TRIAD_MAJOR = CHORD_TYPES[0]!;
 const TRIAD_MINOR = CHORD_TYPES[1]!;
@@ -204,6 +211,20 @@ export function chordName(c: Chord, flats: boolean): string {
 }
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+
+/** Numeral for a chord on a known scale degree (0-based), e.g. borrowed "iv" in a major key. */
+export function romanForDegree(degree: number, type: ChordType): string {
+  const base = ROMAN[((degree % 7) + 7) % 7]!;
+  return (type.minor ? base.toLowerCase() : base) + type.numeral;
+}
+
+/** Interval from a degree's root up to its diatonic seventh. */
+export function diatonicSeventh(scale: ScaleId, degree: number): number {
+  const iv = parentScale(scale);
+  const n = iv.length;
+  const at = (d: number): number => iv[d % n]! + 12 * Math.floor(d / n);
+  return at(degree + 6) - at(degree);
+}
 
 /** Roman numeral of a chord in the key, "" when its notes are not all in the parent scale. */
 export function romanNumeral(c: Chord, key: number, scale: ScaleId): string {
