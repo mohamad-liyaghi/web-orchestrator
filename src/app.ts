@@ -15,6 +15,7 @@ import { mountLanding, mountStage } from './ui';
 import { MockTracker } from './dev/mockTracker';
 import { loadSettings, sanitizeSettings, saveSettings, settingsFromHash } from './settings';
 import { coverMap, playZoneFor } from './geometry';
+import { GestureController } from './gestures';
 
 /** `?mock` runs a synthetic tracker: no camera, no models. Used for development and tests. */
 const MOCK = new URLSearchParams(location.search).has('mock');
@@ -62,11 +63,20 @@ export class App {
   private starting = false;
   private zoneKey = '';
   private readonly instrumentIds: string[];
+  private readonly gestures: GestureController;
 
   constructor(private readonly root: HTMLElement) {
     this.engine = createMusicEngine();
     this.instrumentIds = this.engine.instruments.map((i) => i.id);
     this.settings = loadSettings(this.instrumentIds);
+    this.gestures = new GestureController({
+      getSettings: () => this.settings,
+      apply: (patch) => this.applySettings(patch),
+      toggleRecording: () => void this.toggleRecording(),
+      isRecording: () => this.engine.isRecording,
+      instruments: this.engine.instruments,
+      scales: this.engine.scales,
+    });
     // A shared setup link (#lead=theremin&scale=minor...) overrides the stored settings once.
     const shared = settingsFromHash();
     if (shared) {
@@ -179,6 +189,7 @@ export class App {
     this.frame = null;
     this.voices = [];
     this.zoneKey = '';
+    this.gestures.reset();
   }
 
   // -------------------------------------------------------------------------------------------
@@ -188,6 +199,7 @@ export class App {
   private readonly onFrame = (frame: TrackingFrame): void => {
     this.frame = frame;
     this.updatePlayZone();
+    this.gestures.update(frame);
     this.voices = this.engine.update(frame);
   };
 
@@ -207,6 +219,8 @@ export class App {
       audio: { level: this.engine.level(), spectrum: this.engine.spectrum() },
       metrics: this.engine.metrics(),
       status,
+      lastGesture: this.gestures.last,
+      pendingGesture: this.gestures.pending,
     });
     this.raf = requestAnimationFrame(this.loop);
   };
