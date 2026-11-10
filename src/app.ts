@@ -13,7 +13,7 @@ import { closeCamera, createTracker, openCamera } from './tracking';
 import { createMusicEngine } from './music';
 import { mountLanding, mountStage } from './ui';
 import { MockTracker } from './dev/mockTracker';
-import { loadSettings, sanitizeSettings, saveSettings } from './settings';
+import { loadSettings, sanitizeSettings, saveSettings, settingsFromHash } from './settings';
 import { coverMap, playZoneFor } from './geometry';
 
 /** `?mock` runs a synthetic tracker: no camera, no models. Used for development and tests. */
@@ -67,6 +67,13 @@ export class App {
     this.engine = createMusicEngine();
     this.instrumentIds = this.engine.instruments.map((i) => i.id);
     this.settings = loadSettings(this.instrumentIds);
+    // A shared setup link (#lead=theremin&scale=minor...) overrides the stored settings once.
+    const shared = settingsFromHash();
+    if (shared) {
+      this.settings = sanitizeSettings({ ...this.settings, ...shared }, this.instrumentIds);
+      saveSettings(this.settings);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
   }
 
   mount(): void {

@@ -226,6 +226,8 @@ export interface Settings {
   /** Number of notes spread across the play zone for the lead voice, 8..24. */
   span: number;
   trigger: TriggerMode;
+  /** Mouth gate sensitivity 0..1 (0.5 = default). Higher opens the gate with a smaller mouth. */
+  sensitivity: number;
   /** Backing beat on/off. */
   groove: boolean;
   /** Beat tempo in BPM, 60..160. */
