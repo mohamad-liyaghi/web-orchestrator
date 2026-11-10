@@ -24,9 +24,9 @@ function stepUp(midi: number, steps: number, inScale: (pc: number) => boolean): 
 }
 
 /**
- * The harmony note for `midi`, or null for 'off'. A melody note outside the scale (blues note,
- * chromatic passing tone) is harmonised from the scale note below it, keeping the same offset,
- * so the harmony moves in parallel instead of jumping.
+ * The harmony note for `midi`, or null for 'off'. A melody note outside the scale (a blues note,
+ * a chromatic passing tone) takes the harmony of the scale note just above it, so the harmony
+ * stays in the key (Eb over C major gets G, not F#). Continuous pitch glides in parallel.
  */
 export function harmonyNote(midi: number, kind: Harmony, key: number, scale: ScaleId): number | null {
   if (kind === 'off') return null;
@@ -38,6 +38,6 @@ export function harmonyNote(midi: number, kind: Harmony, key: number, scale: Sca
   const whole = Math.round(midi);
   const frac = midi - whole;
   let base = whole;
-  while (!inScale(mod12(base)) && whole - base < 3) base--;
-  return stepUp(base, steps, inScale) + (whole - base) + frac + octave;
+  while (!inScale(mod12(base)) && base - whole < 3) base++;
+  return stepUp(base, steps, inScale) + frac + octave;
 }
