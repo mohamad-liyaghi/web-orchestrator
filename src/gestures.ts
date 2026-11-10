@@ -34,6 +34,7 @@ export const ACTION_LABEL: Record<GestureAction, string> = {
   'next-scale': 'Next scale',
   'toggle-groove': 'Beat on / off',
   'toggle-record': 'Start / stop recording',
+  'loop-record': 'Loop: record next track',
 };
 
 interface Hold {
@@ -47,6 +48,8 @@ export interface GestureDeps {
   apply(patch: Partial<Settings>): void;
   toggleRecording(): void;
   isRecording(): boolean;
+  /** Starts recording the next free loop track, or stops the take; returns what happened. */
+  loopRecord?(): string;
   instruments: readonly InstrumentDef[];
   scales: readonly ScaleDef[];
 }
@@ -151,6 +154,8 @@ export class GestureController {
         this.deps.toggleRecording();
         return was ? 'Recording saved' : 'Recording…';
       }
+      case 'loop-record':
+        return this.deps.loopRecord?.() || 'Looper unavailable';
       default:
         return ACTION_LABEL[action];
     }

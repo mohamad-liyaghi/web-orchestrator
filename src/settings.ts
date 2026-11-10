@@ -48,6 +48,7 @@ export const GESTURE_ACTIONS: readonly GestureAction[] = [
   'next-scale',
   'toggle-groove',
   'toggle-record',
+  'loop-record',
 ];
 export const LOOP_BARS: readonly LoopBars[] = [1, 2, 4, 8];
 

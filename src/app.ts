@@ -3,6 +3,7 @@ import {
   type HudStatus,
   type LandingView,
   type LearnMode,
+  type LoopCommand,
   type MusicEngine,
   type Settings,
   type StageView,
@@ -10,7 +11,7 @@ import {
   type TrackingFrame,
   type VoiceState,
 } from './types';
-import { closeCamera, createTracker, openCamera } from './tracking';
+import { cameraIdOf, closeCamera, createTracker, listCameras, openCamera } from './tracking';
 import { createMusicEngine } from './music';
 import { mountLanding, mountStage } from './ui';
 import { MockTracker } from './dev/mockTracker';
@@ -67,6 +68,10 @@ export class App {
   private readonly instrumentIds: string[];
   private readonly gestures: GestureController;
   private readonly learn: LearnSession;
+  private unsubscribeMidi: (() => void) | null = null;
+  /** Camera switch in progress (a newer pick waits for it). */
+  private cameraBusy: Promise<void> | null = null;
+  private cameraWanted = '';
 
   constructor(private readonly root: HTMLElement) {
     this.engine = createMusicEngine();
@@ -78,6 +83,7 @@ export class App {
       apply: (patch) => this.applySettings(patch),
       toggleRecording: () => void this.toggleRecording(),
       isRecording: () => this.engine.isRecording,
+      loopRecord: () => this.engine.loop({ type: 'record' }),
       instruments: this.engine.instruments,
       scales: this.engine.scales,
     });
@@ -127,12 +133,16 @@ export class App {
         onRecordToggle: () => void this.toggleRecording(),
         onExit: () => void this.exit(),
         onLearn: (songId, mode) => this.setLearn(songId, mode),
+        onLoop: (cmd) => this.loopCommand(cmd),
+        onMidiEnable: () => void this.enableMidi(),
       });
       this.stage = stage;
       stage.setInstruments(this.engine.instruments, this.engine.scales);
       stage.setSettings(this.settings);
       stage.setSongs(this.learn.songs());
       this.unsubscribeLoad = this.engine.onLoadState((s) => this.stage?.setLoadState(s));
+      stage.setMidiStatus(this.engine.midiStatus());
+      this.unsubscribeMidi = this.engine.onMidiStatus((s) => this.stage?.setMidiStatus(s));
 
       const tracker: Tracker = MOCK ? new MockTracker() : createTracker();
       this.tracker = tracker;
@@ -140,18 +150,25 @@ export class App {
       modelsReady.catch(() => undefined); // awaited below; avoid an unhandled rejection meanwhile
 
       stage.setBootProgress({ stage: 'camera', label: 'Waiting for camera permission', loaded: 0, total: 0, done: false });
-      const stream = MOCK ? null : await openCamera(stage.video);
+      const stream = MOCK ? null : await this.openPreferredCamera(stage.video);
       if (this.stage !== stage) {
         // The user left (or the page was hidden) while the permission prompt was open.
         closeCamera(stream);
         return;
       }
       this.stream = stream;
+      this.cameraWanted = this.settings.cameraId;
       this.stream?.getVideoTracks()[0]?.addEventListener('ended', this.onCameraEnded);
+      if (!MOCK) {
+        void this.refreshCameras();
+        navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
+      }
       stage.setBootProgress({ stage: 'audio', label: 'Starting audio', loaded: 0, total: 0, done: false });
       await audioReady;
       if (this.stage !== stage) return; // left while audio was starting; teardown closed the camera
       this.engine.configure(this.settings);
+      // MIDI out was turned on in an earlier session: reconnect (the browser remembers the grant).
+      if (this.settings.midiOut) void this.enableMidi();
 
       // Camera is live: reveal the stage while the models finish loading.
       this.landing?.destroy();
@@ -193,6 +210,10 @@ export class App {
     closeCamera(this.stream, this.stage?.video);
     this.stream = null;
     this.engine.panic();
+    this.engine.loop({ type: 'reset' });
+    navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange);
+    this.unsubscribeMidi?.();
+    this.unsubscribeMidi = null;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.unsubscribeLoad?.();
@@ -237,6 +258,7 @@ export class App {
       lastGesture: this.gestures.last,
       pendingGesture: this.gestures.pending,
       learn: this.learn.state,
+      looper: this.engine.looper(),
     });
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -269,7 +291,102 @@ export class App {
     this.engine.configure(this.settings);
     this.tracker?.setLowPower(this.settings.lowPower);
     this.stage?.setSettings(this.settings);
+    if (this.running && !MOCK && this.settings.cameraId !== this.cameraWanted) void this.switchCamera(this.settings.cameraId);
   }
+
+  // -------------------------------------------------------------------------------------------
+  // Looper, MIDI, cameras
+  // -------------------------------------------------------------------------------------------
+
+  private loopCommand(cmd: LoopCommand): void {
+    const label = this.engine.loop(cmd);
+    // The panel shows mute / solo / clear; say the rest out loud.
+    if (label && (cmd.type === 'record' || cmd.type === 'undo' || cmd.type === 'clear-all' || cmd.type === 'stop')) this.stage?.toast(label);
+  }
+
+  private async enableMidi(): Promise<void> {
+    const st = await this.engine.enableMidi();
+    this.stage?.setMidiStatus(st);
+  }
+
+  /** The remembered camera, or the default one when it is gone (and forget it then). */
+  private async openPreferredCamera(video: HTMLVideoElement): Promise<MediaStream> {
+    const id = this.settings.cameraId;
+    if (!id) return openCamera(video);
+    try {
+      return await openCamera(video, id);
+    } catch (e) {
+      if (!(e instanceof AppError) || e.code !== 'camera-not-found') throw e;
+      this.forgetCamera();
+      window.setTimeout(() => this.stage?.toast('Your chosen camera is not connected. Using the default camera.'), 600);
+      return openCamera(video);
+    }
+  }
+
+  /** Back to the default camera in the settings, without reopening anything. */
+  private forgetCamera(): void {
+    this.cameraWanted = '';
+    this.settings = sanitizeSettings({ ...this.settings, cameraId: '' }, this.instrumentIds);
+    saveSettings(this.settings);
+    this.stage?.setSettings(this.settings);
+  }
+
+  private async refreshCameras(): Promise<void> {
+    const list = await listCameras();
+    this.stage?.setCameras(list);
+  }
+
+  /**
+   * Reopens the stream on another camera. The tracker and the audio keep running: the tracker
+   * just restarts its frame loop on the same <video>, so no model is reloaded.
+   */
+  private async switchCamera(deviceId: string): Promise<void> {
+    this.cameraWanted = deviceId;
+    while (this.cameraBusy) await this.cameraBusy;
+    const stage = this.stage;
+    const tracker = this.tracker;
+    if (!stage || !tracker || !this.running || deviceId !== this.cameraWanted) return;
+    if (cameraIdOf(this.stream) === deviceId && deviceId) return;
+    const run = (async () => {
+      this.stream?.getVideoTracks()[0]?.removeEventListener('ended', this.onCameraEnded);
+      tracker.stop();
+      // Phones cannot open two cameras at once: release the old one first.
+      closeCamera(this.stream, stage.video);
+      this.stream = null;
+      try {
+        this.stream = await this.openPreferredCamera(stage.video);
+      } catch (e) {
+        try {
+          this.stream = await openCamera(stage.video);
+          this.stage?.toast('That camera could not start. Back on the default camera.');
+          this.forgetCamera();
+        } catch {
+          if (this.stage === stage) void this.exit(toAppError(e));
+          return;
+        }
+      }
+      if (this.stage !== stage || !this.running) {
+        closeCamera(this.stream, undefined);
+        this.stream = null;
+        return;
+      }
+      this.cameraWanted = this.settings.cameraId;
+      this.stream.getVideoTracks()[0]?.addEventListener('ended', this.onCameraEnded);
+      this.zoneKey = '';
+      tracker.start(stage.video, this.onFrame);
+      void this.refreshCameras();
+    })();
+    this.cameraBusy = run;
+    try {
+      await run;
+    } finally {
+      this.cameraBusy = null;
+    }
+  }
+
+  private readonly onDeviceChange = (): void => {
+    void this.refreshCameras();
+  };
 
   private async toggleRecording(): Promise<void> {
     if (!this.engine.isRecording) {
@@ -343,6 +460,12 @@ export class App {
   };
 
   private readonly onCameraEnded = (): void => {
+    // A picked camera was unplugged: carry on with the default one if there is one.
+    if (this.settings.cameraId && this.running) {
+      this.stage?.toast('The camera was disconnected. Switching to the default camera.');
+      this.applySettings({ cameraId: '' });
+      return;
+    }
     void this.exit(new AppError('camera-not-found', 'The camera was disconnected.'));
   };
 }

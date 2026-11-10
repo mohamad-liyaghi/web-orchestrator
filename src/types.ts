@@ -287,7 +287,8 @@ export type GestureAction =
   | 'next-preset'
   | 'next-scale'
   | 'toggle-groove'
-  | 'toggle-record';
+  | 'toggle-record'
+  | 'loop-record';
 
 export interface Settings {
   mode: PlayMode;
