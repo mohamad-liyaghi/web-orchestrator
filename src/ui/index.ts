@@ -12,6 +12,7 @@ import './styles/dock.css';
 import './styles/overlays.css';
 import './styles/chords.css';
 import './styles/learn.css';
+import './styles/looper.css';
 
 export { mountLanding } from './landing';
 export { mountStage } from './stage';

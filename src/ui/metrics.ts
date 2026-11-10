@@ -179,7 +179,9 @@ export class MetricsStrip {
       this.notes.sub.set(`${Math.round(m.notesPerMinute)}/min`);
       this.session.value.set(formatClock(m.sessionMs));
     }
-    if (settings.groove && m.bar > 0) {
+    // A position comes from the beat or from playing loops (bar:beat inside the loop).
+    const clocked = m.bar > 0;
+    if (clocked) {
       if (m.beat !== this.lastBeat || m.bar !== this.lastBar) {
         this.lastBeat = m.beat;
         this.lastBar = m.bar;
@@ -193,7 +195,7 @@ export class MetricsStrip {
         for (const d of this.beatDots) setClass(d, 'on', false);
       }
     }
-    setClass(this.tempo.el, 'is-off', !settings.groove);
+    setClass(this.tempo.el, 'is-off', !settings.groove && !clocked);
 
     const lk = settings.leftHand === 'bass' || settings.leftHand === 'chords';
     const key = `${settings.lead}|${lk ? settings.bass : ''}`;

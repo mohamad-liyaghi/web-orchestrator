@@ -47,6 +47,10 @@ export const ICONS = {
   learn: svg('<path d="M2.5 9 12 4.5 21.5 9 12 13.5Z"/><path d="M6.5 11v4.5c0 1.4 2.5 3 5.5 3s5.5-1.6 5.5-3V11"/><path d="M21.5 9v5"/>'),
   star: svg('<path d="m12 3.2 2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8Z" fill="currentColor" stroke="none"/>'),
   next: svg('<path d="M6 5.5v13l9-6.5ZM18 5v14"/>'),
+  loop: svg('<path d="M17 3.5 20 6.5 17 9.5"/><path d="M4 12V10a3.5 3.5 0 0 1 3.5-3.5H20"/><path d="M7 20.5 4 17.5 7 14.5"/><path d="M20 12v2a3.5 3.5 0 0 1-3.5 3.5H4"/>'),
+  undo: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>'),
+  midi: svg('<circle cx="12" cy="12" r="9"/><path d="M7.5 12.5h.01M9 8.8h.01M12 7.5h.01M15 8.8h.01M16.5 12.5h.01"/><path d="M10.5 21v-2.5h3V21"/>'),
   gesture: svg('<path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10M12 9.5V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M15 10.5a1.5 1.5 0 0 1 3 0v3.5a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4 14.6a1.5 1.5 0 0 1 2.5-1.6L9 15"/>'),
 } as const;
 

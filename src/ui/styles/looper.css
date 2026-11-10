@@ -1,0 +1,499 @@
+/* Looper panel: four track lanes above the metrics strip. */
+.looper {
+  width: min(980px, 100%);
+  padding: 10px 12px 12px;
+  border-radius: 18px;
+}
+
+.looper[hidden] {
+  display: none;
+}
+
+.lp-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.lp-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  flex: none;
+}
+
+.lp-title .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.lp-status {
+  font-size: 0.84rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.looper.is-rec .lp-status {
+  color: #ff8aa2;
+}
+
+.lp-count {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: var(--bg);
+  font-weight: 700;
+  flex: none;
+  box-shadow: 0 0 18px -2px var(--amber);
+  animation: lp-beat 0.5s var(--ease-out) infinite;
+}
+
+.lp-count[hidden] {
+  display: none;
+}
+
+@keyframes lp-beat {
+  0% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.lp-spacer {
+  flex: 1 1 auto;
+}
+
+.lp-bars-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.lp-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.lp-bars .seg-btn {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.lp-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--hair);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ink-2);
+  flex: none;
+  transition:
+    color var(--t-fast),
+    border-color var(--t-fast),
+    opacity var(--t-fast);
+}
+
+.lp-btn .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.lp-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--hair-2);
+}
+
+.lp-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.lp-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lp-track {
+  --c: var(--cyan);
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 34px 34px 34px;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Record arm: the track number in a ring; red with a progress sweep while recording. */
+.lp-rec {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--c) 40%, transparent);
+  background: color-mix(in srgb, var(--c) 10%, transparent);
+  color: var(--c);
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+
+.lp-rec:hover {
+  border-color: var(--c);
+}
+
+.lp-rec-n {
+  position: relative;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.lp-rec-ring {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: #ff5577;
+  transform: scaleX(var(--take, 0));
+  transform-origin: left;
+  opacity: 0;
+}
+
+.lp-track.is-empty .lp-rec::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff5577;
+  opacity: 0.7;
+}
+
+.lp-track.is-armed .lp-rec {
+  border-color: var(--amber);
+  color: var(--amber);
+  animation: lp-blink 0.5s steps(2, jump-none) infinite;
+}
+
+.lp-track.is-recording .lp-rec {
+  border-color: #ff5577;
+  color: #fff;
+  background: rgba(255, 85, 119, 0.22);
+  box-shadow: 0 0 18px -4px #ff5577;
+}
+
+.lp-track.is-recording .lp-rec-ring {
+  opacity: 1;
+}
+
+@keyframes lp-blink {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.lp-lane {
+  --pulse: 0;
+  position: relative;
+  height: 34px;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--c) calc(6% + var(--pulse) * 14%), transparent), rgba(255, 255, 255, 0.02)),
+    rgba(4, 6, 12, 0.35);
+  border: 1px solid color-mix(in srgb, var(--c) calc(16% + var(--pulse) * 40%), transparent);
+}
+
+.lp-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lp-playhead {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.lp-playhead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--ink);
+  box-shadow: 0 0 8px var(--c);
+  opacity: 0.8;
+}
+
+.lp-info {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: calc(100% - 20px);
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.lp-track:not(.is-empty):not(.is-armed) .lp-info {
+  top: 4px;
+  transform: none;
+  font-size: 0.62rem;
+  color: color-mix(in srgb, var(--c) 70%, white);
+  opacity: 0.75;
+}
+
+.lp-track.is-muted .lp-lane {
+  opacity: 0.4;
+  filter: grayscale(0.7);
+}
+
+.lp-tog {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--hair);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition:
+    color var(--t-fast),
+    background var(--t-fast),
+    border-color var(--t-fast),
+    opacity var(--t-fast);
+}
+
+.lp-tog .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.lp-tog:hover:not(:disabled) {
+  border-color: var(--hair-2);
+  color: var(--ink);
+}
+
+.lp-tog:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.lp-tog[aria-pressed='true'] {
+  color: var(--bg);
+  background: var(--amber);
+  border-color: transparent;
+}
+
+.lp-solo[aria-pressed='true'] {
+  background: var(--lime);
+}
+
+/* Topbar toggle for the panel: a dot while loops play, red while recording. */
+.loop-btn {
+  position: relative;
+}
+
+.loop-btn[aria-expanded='true'] {
+  color: var(--bg);
+  background: var(--cyan);
+  border-color: transparent;
+}
+
+.loop-btn.is-live::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime);
+}
+
+.loop-btn.is-rec::after {
+  background: #ff5577;
+  box-shadow: 0 0 8px #ff5577;
+  animation: lp-blink 0.8s steps(2, jump-none) infinite;
+}
+
+.stage.is-lite .looper .lp-lane {
+  border-color: color-mix(in srgb, var(--c) 18%, transparent);
+}
+
+@media (max-width: 768px), (max-height: 500px) {
+  .looper {
+    width: 100%;
+    padding: 8px;
+    border-radius: 16px;
+  }
+
+  .lp-head {
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+
+  .lp-label {
+    display: none;
+  }
+
+  .lp-bars .seg-btn {
+    min-width: 30px;
+    padding: 0 6px;
+  }
+
+  .lp-tracks {
+    gap: 5px;
+  }
+
+  .lp-track {
+    grid-template-columns: 38px minmax(0, 1fr) 32px 32px 32px;
+    gap: 5px;
+  }
+
+  .lp-lane,
+  .lp-rec,
+  .lp-tog {
+    height: 32px;
+  }
+
+  .lp-tog {
+    width: 32px;
+  }
+}
+
+@media (max-width: 480px) {
+  .lp-status {
+    flex: 1 1 100%;
+    order: 10;
+    font-size: 0.76rem;
+  }
+
+  .lp-spacer {
+    display: none;
+  }
+
+  .lp-bars-wrap {
+    margin-left: auto;
+  }
+}
+
+/* Landscape phones: two columns of tracks to save height. */
+@media (max-height: 500px) and (min-width: 600px) {
+  .lp-tracks {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px 10px;
+  }
+
+  .lp-lane,
+  .lp-rec,
+  .lp-tog {
+    height: 30px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-count,
+  .lp-track.is-armed .lp-rec,
+  .loop-btn.is-rec::after {
+    animation: none;
+  }
+}
+
+/* Setup tab: MIDI out */
+.midi-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.midi-controls[hidden],
+.midi-note[hidden] {
+  display: none;
+}
+
+.midi-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.midi-rescan {
+  width: var(--tap);
+  padding: 0;
+  justify-content: center;
+}
+
+.midi-note {
+  margin: 6px 0 0;
+}
+
+.midi-note.is-error {
+  color: #ffb3c1;
+}
+
+/* Narrow phones: the looper button joins the top bar, so the buttons give up a little width. */
+@media (max-width: 420px) {
+  .topbar .tb-actions {
+    gap: 4px;
+  }
+
+  .topbar .tb-actions .icon-btn {
+    width: 38px;
+  }
+
+  .topbar .rec-btn {
+    padding: 0 8px;
+  }
+
+  .topbar .fb-meter {
+    display: none;
+  }
+}

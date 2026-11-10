@@ -1,4 +1,7 @@
 import type {
+  CameraInfo,
+  LooperState,
+  MidiStatus,
   AppError,
   FrameVerdict,
   InstrumentDef,
@@ -24,6 +27,7 @@ import { icon, logoMark } from './icons';
 import { MetricsStrip } from './metrics';
 import { buildHelp } from './help';
 import { ChordDeck } from './chords';
+import { LooperPanel } from './looper';
 import { LearnOverlay, LearnPane } from './learn';
 
 type FrameState = FrameVerdict | 'no-face' | 'waiting';
@@ -75,6 +79,10 @@ class Stage implements StageView {
   private readonly hud: HudRenderer;
   private readonly metrics: MetricsStrip;
   private readonly chordDeck = new ChordDeck();
+  private readonly looper: LooperPanel | null;
+  private readonly loopBtn: HTMLButtonElement | null;
+  private loopPhase: LooperState['phase'] = 'idle';
+  private loopBtnKey = '';
   private readonly dock: Dock;
   private readonly learnPane: LearnPane | null;
   private readonly learnOverlay: LearnOverlay;
@@ -200,7 +208,15 @@ class Stage implements StageView {
     const settingsBtn = this.iconButton('settings', 'Settings', () => (this.dock.isOpen ? this.dock.close() : this.dock.open('play')));
     const exitBtn = this.iconButton('exit', 'Exit to the start page', () => callbacks.onExit());
     exitBtn.classList.add('exit-btn');
-    const actions = h('div', { class: 'tb-actions' }, this.recBtn, learnBtn, helpBtn, this.fsBtn, settingsBtn, exitBtn);
+    // Looper (only when the app handles it).
+    const onLoop = callbacks.onLoop?.bind(callbacks);
+    this.looper = onLoop ? new LooperPanel({ onLoop, onBars: (loopBars) => callbacks.onSettings({ loopBars }), instruments: this.instruments }) : null;
+    this.loopBtn = onLoop ? this.iconButton('loop', 'Looper', () => this.toggleLooper()) : null;
+    if (this.loopBtn) {
+      this.loopBtn.classList.add('loop-btn');
+      this.loopBtn.setAttribute('aria-expanded', 'false');
+    }
+    const actions = h('div', { class: 'tb-actions' }, this.recBtn, this.loopBtn, learnBtn, helpBtn, this.fsBtn, settingsBtn, exitBtn);
     const topbar = h('header', { class: 'topbar' }, brand, status, actions);
     this.topbar = topbar;
 
@@ -214,7 +230,7 @@ class Stage implements StageView {
     // ---- bottom: metrics + dock ---------------------------------------------------------
     this.metrics = new MetricsStrip(this.instruments);
     this.dock = new Dock({ callbacks, toast: (m) => this.toast(m), learnPane: this.learnPane?.el });
-    const bottom = h('div', { class: 'bottom' }, this.chordDeck.el, this.metrics.el, this.dock.dock);
+    const bottom = h('div', { class: 'bottom' }, this.chordDeck.el, this.looper?.el, this.metrics.el, this.dock.dock);
 
     // ---- boot overlay -------------------------------------------------------------------
     this.bootLabel = new TextSlot(h('p', { class: 'boot-label' }));
@@ -311,6 +327,7 @@ class Stage implements StageView {
   setSettings(s: Settings): void {
     this.settings = s;
     this.dock.setSettings(s);
+    this.looper?.setBars(s.loopBars);
     this.metrics.setScale(s, this.scales);
     this.hud.setLowPower(s.lowPower);
     this.helpRefresh(s);
@@ -357,6 +374,14 @@ class Stage implements StageView {
     if (s.error) this.toast(`Couldn’t load ${this.instruments.get(s.id)?.name ?? s.id}. Try another instrument.`);
   }
 
+  setCameras(list: readonly CameraInfo[]): void {
+    this.dock.setCameras(list);
+  }
+
+  setMidiStatus(st: MidiStatus): void {
+    this.dock.setMidiStatus(st);
+  }
+
   setRecording(on: boolean): void {
     this.recording = on;
     this.recStart = performance.now();
@@ -376,6 +401,7 @@ class Stage implements StageView {
     this.hud.draw(data, s, now);
     this.metrics.update(data, s, now);
     this.chordDeck.update(data.metrics, s);
+    if (data.looper) this.updateLooper(data.looper);
     this.updateStatus(data, now);
     this.updateCoach(data, dt);
     this.updateFlash(data, now);
@@ -424,6 +450,7 @@ class Stage implements StageView {
     document.removeEventListener('fullscreenchange', this.onFullscreen);
     window.clearTimeout(this.bootHideTimer);
     this.dock.destroy();
+    this.looper?.destroy();
     this.hud.destroy();
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     this.video.pause();
@@ -598,6 +625,30 @@ class Stage implements StageView {
     this.fsBtn.setAttribute('aria-label', on ? 'Exit fullscreen (F)' : 'Fullscreen (F)');
   };
 
+  private toggleLooper(force?: boolean): void {
+    if (!this.looper || !this.loopBtn) return;
+    const open = force ?? !this.looper.isOpen;
+    this.looper.setOpen(open);
+    this.loopBtn.setAttribute('aria-expanded', String(open));
+  }
+
+  private updateLooper(st: LooperState): void {
+    // Starting a take from the keyboard or a gesture brings the panel up.
+    if (st.phase !== this.loopPhase) {
+      if (this.loopPhase === 'idle' && (st.phase === 'count-in' || st.phase === 'recording')) this.toggleLooper(true);
+      this.loopPhase = st.phase;
+    }
+    this.looper?.update(st);
+    if (this.loopBtn) {
+      const key = st.phase === 'count-in' || st.phase === 'recording' ? 'rec' : st.phase === 'playing' ? 'live' : '';
+      if (key !== this.loopBtnKey) {
+        this.loopBtnKey = key;
+        setClass(this.loopBtn, 'is-rec', key === 'rec');
+        setClass(this.loopBtn, 'is-live', key !== '');
+      }
+    }
+  }
+
   private readonly onKey = (e: KeyboardEvent): void => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape') {
@@ -648,6 +699,17 @@ class Stage implements StageView {
       case 'H':
       case '?':
         this.toggleHelp();
+        break;
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+        if (!this.callbacks.onLoop || e.repeat) return;
+        this.callbacks.onLoop({ type: 'record', track: Number(e.key) - 1 });
+        break;
+      case 'Backspace':
+        if (!this.callbacks.onLoop) return;
+        this.callbacks.onLoop({ type: 'undo' });
         break;
       case 'f':
       case 'F':

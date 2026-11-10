@@ -1,5 +1,7 @@
 import type {
   ActionGesture,
+  CameraInfo,
+  MidiStatus,
   BeatStyle,
   ChordPlay,
   PlayMode,
@@ -187,6 +189,15 @@ export class Dock {
   private resetArmed = 0;
   private drag: { id: number; y0: number; dy: number; t0: number; wasOpen: boolean } | null = null;
   private readonly resetBtn: HTMLButtonElement;
+  private readonly camSec: HTMLElement;
+  private readonly camSel: HTMLSelectElement;
+  private cameras: readonly CameraInfo[] = [];
+  private readonly midiSec: HTMLElement;
+  private readonly midiEnableBtn: HTMLButtonElement;
+  private readonly midiControls: HTMLElement;
+  private readonly midiSel: HTMLSelectElement;
+  private readonly midiNote: HTMLElement;
+  private midi: MidiStatus | null = null;
 
   constructor(private readonly deps: DockDeps) {
     const set = (patch: Partial<Settings>): void => deps.callbacks.onSettings(patch);
@@ -465,10 +476,55 @@ export class Dock {
       ['L', 'Next left-hand role'],
       ['H or ?', 'Help'],
       ['F', 'Fullscreen'],
+      ['1 – 4', 'Record loop 1–4'],
+      ['Backspace', 'Undo last loop take'],
       ['Esc', 'Close panels'],
     ] as const) {
       shortcuts.append(h('div', null, h('dt', null, h('kbd', { text: k })), h('dd', { text: d })));
     }
+    // Camera picker (only with more than one camera).
+    const camId = uid('cam');
+    this.camSel = h('select', { id: camId, class: 'select' });
+    this.camSel.addEventListener('change', () => set({ cameraId: this.camSel.value }));
+    this.camSec = section('Camera', h('label', { for: camId, class: 'ctl-name sr-only', text: 'Camera' }), this.camSel);
+    this.camSec.hidden = true;
+    b.push((s) => this.paintCameras(s));
+
+    // MIDI out (only where the browser has Web MIDI).
+    this.midiEnableBtn = h('button', { type: 'button', class: 'btn' });
+    this.midiEnableBtn.append(icon('midi'), h('span', { text: 'Turn on MIDI out' }));
+    this.midiEnableBtn.addEventListener('click', () => deps.callbacks.onMidiEnable?.());
+    const midiId = uid('midi');
+    this.midiSel = h('select', { id: midiId, class: 'select' });
+    this.midiSel.addEventListener('change', () => set({ midiOut: this.midiSel.value }));
+    const rescan = h('button', { type: 'button', class: 'btn midi-rescan', 'aria-label': 'Rescan MIDI devices', title: 'Rescan MIDI devices' });
+    rescan.append(icon('refresh'));
+    rescan.addEventListener('click', () => deps.callbacks.onMidiEnable?.());
+    const chId = uid('midich');
+    const chSel = h('select', { id: chId, class: 'select midi-ch' });
+    for (let c = 1; c <= 16; c++) chSel.append(h('option', { value: c, text: c === 16 ? '16 (bass on 1)' : `${c} (bass on ${c + 1})` }));
+    chSel.addEventListener('change', () => set({ midiChannel: Number(chSel.value) }));
+    b.push((s) => {
+      if (chSel.value !== String(s.midiChannel)) chSel.value = String(s.midiChannel);
+    });
+    this.midiNote = h('p', { class: 'ctl-hint midi-note' });
+    this.midiControls = h(
+      'div',
+      { class: 'midi-controls', hidden: true },
+      h('div', { class: 'midi-row' }, h('label', { for: midiId, class: 'ctl-name', text: 'Output' }), this.midiSel, rescan),
+      h('div', { class: 'midi-row' }, h('label', { for: chId, class: 'ctl-name', text: 'Channel' }), chSel),
+      toggle('MIDI only', 'Mute the built-in sound of your hands while a device plays (loops and beat stay).', (v) => set({ midiOnly: v }), b, (s) => s.midiOnly),
+    );
+    this.midiSec = section(
+      'MIDI out',
+      h('p', { class: 'ctl-hint', text: 'Play a synth, DAW or hardware with your hands: notes go out live, the bass on the next channel, loudness as velocity and CC 11.' }),
+      this.midiEnableBtn,
+      this.midiControls,
+      this.midiNote,
+    );
+    this.midiSec.hidden = true;
+    b.push((s) => this.paintMidi(s));
+
     this.pane(
       'display',
       h(
@@ -483,9 +539,10 @@ export class Dock {
             toggle('Note lanes', 'Horizontal guides for every note.', (v) => set({ lanes: v }), b, (s) => s.lanes),
             toggle('Low power', 'Fewer tracking frames, no particles. For older devices.', (v) => set({ lowPower: v }), b, (s) => s.lowPower),
           ),
+          this.camSec,
           section('Setup', h('div', { class: 'btn-row' }, shareBtn, this.resetBtn)),
         ),
-        h('div', { class: 'hide-touch' }, section('Keyboard shortcuts', shortcuts)),
+        h('div', null, this.midiSec, h('div', { class: 'hide-touch' }, section('Keyboard shortcuts', shortcuts))),
       ),
     );
 
@@ -595,6 +652,59 @@ export class Dock {
 
   destroy(): void {
     window.clearTimeout(this.resetArmed);
+  }
+
+  /** Cameras to choose from; the picker shows only with more than one. */
+  setCameras(list: readonly CameraInfo[]): void {
+    this.cameras = list;
+    this.paintCameras(this.settings);
+  }
+
+  setMidiStatus(st: MidiStatus): void {
+    this.midi = st;
+    this.paintMidi(this.settings);
+  }
+
+  private paintCameras(s: Settings): void {
+    const list = this.cameras;
+    this.camSec.hidden = list.length < 2;
+    if (this.camSec.hidden) return;
+    const sel = this.camSel;
+    const want = ['', ...list.map((c) => c.deviceId)].join('|');
+    if (sel.dataset.ids !== want || [...sel.options].some((o, i) => i > 0 && o.text !== list[i - 1]?.label)) {
+      sel.dataset.ids = want;
+      sel.replaceChildren(h('option', { value: '', text: 'Default (front camera)' }), ...list.map((c) => h('option', { value: c.deviceId, text: c.label })));
+    }
+    const v = list.some((c) => c.deviceId === s.cameraId) ? s.cameraId : '';
+    if (sel.value !== v) sel.value = v;
+  }
+
+  private paintMidi(s: Settings): void {
+    const st = this.midi;
+    this.midiSec.hidden = !st?.supported || !this.deps.callbacks.onMidiEnable;
+    if (!st || this.midiSec.hidden) return;
+    this.midiEnableBtn.hidden = st.enabled;
+    this.midiEnableBtn.disabled = st.pending;
+    this.midiControls.hidden = !st.enabled;
+    const sel = this.midiSel;
+    const known = st.outputs.some((o) => o.id === s.midiOut);
+    const opts: Array<[string, string]> = [['', 'Off'], ...st.outputs.map((o): [string, string] => [o.id, o.name])];
+    if (s.midiOut && !known) opts.push([s.midiOut, 'Disconnected device']);
+    const sig = opts.map((o) => o.join('=')).join('|');
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig;
+      sel.replaceChildren(...opts.map(([value, text]) => h('option', { value, text })));
+    }
+    if (sel.value !== s.midiOut) sel.value = s.midiOut;
+    let note = '';
+    if (st.error) note = st.error;
+    else if (st.pending) note = 'Waiting for permission…';
+    else if (st.enabled && !st.outputs.length) note = 'No MIDI outputs found. Connect a device (or a virtual port), then rescan.';
+    else if (st.enabled && s.midiOut && !st.connected) note = 'The selected device is not connected. It reconnects by itself when plugged back in.';
+    else if (st.enabled && s.midiOut) note = `Sending on channel ${s.midiChannel}, bass on ${(s.midiChannel % 16) + 1}.`;
+    this.midiNote.textContent = note;
+    this.midiNote.hidden = !note;
+    setClass(this.midiNote, 'is-error', !!st.error || (!!s.midiOut && st.enabled && !st.connected));
   }
 
   // -------------------------------------------------------------------------------------------

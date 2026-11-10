@@ -598,6 +598,11 @@ export interface StageCallbacks {
   /** Start learning a song (null = stop learning). `mode` defaults to 'wait'. Optional: without it
    *  the stage hides its Learn entry. */
   onLearn?(songId: string | null, mode?: LearnMode): void;
+  /** Looper control (panel buttons, keys 1-4 and Backspace). Optional: without it the stage hides
+   *  the looper. */
+  onLoop?(cmd: LoopCommand): void;
+  /** User asked to turn MIDI out on (or rescan the outputs). Optional: without it no MIDI section. */
+  onMidiEnable?(): void;
 }
 
 /** A camera the user can pick. */
@@ -638,6 +643,8 @@ export interface StageRenderData {
   pendingGesture: { handId: number; gesture: ActionGesture; progress: number } | null;
   /** Learn mode progress, null (or absent) when no song is being learned. */
   learn?: LearnState | null;
+  /** Looper state (absent: the looper panel stays idle). */
+  looper?: LooperState;
 }
 
 export interface StageView {
@@ -654,6 +661,9 @@ export interface StageView {
   setBootProgress(p: LoadProgress | null): void;
   setLoadState(s: InstrumentLoadState): void;
   setRecording(on: boolean): void;
+  /** Cameras to offer in the settings (the picker shows when there is more than one). */
+  setCameras(list: readonly CameraInfo[]): void;
+  setMidiStatus(s: MidiStatus): void;
   /** Called once per animation frame with the latest data. */
   render(data: StageRenderData): void;
   showError(err: AppError): void;

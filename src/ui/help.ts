@@ -28,6 +28,7 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
     ['face', 'Open your mouth to play', 'Mouth trigger: open to sound, wider is louder, like a breath controller. Adjust Mouth sensitivity in Play.'],
     ['sliders', 'Left hand', 'Volume: height sets the loudness (theremin style). Bass: its height plays a bass line. Chords: raise 1–5 fingers for the chords I–V. Off: ignored.'],
     ['wave', 'Pinch or Hands mode', 'Pinch: touch thumb and index to sound a note. Hands: plays whenever a hand is up.'],
+    ['loop', 'Loop yourself', 'Open the looper (top bar) or press 1–4: after a one-bar count-in, play one loop and it repeats. Layer up to four tracks, each with its own instrument; mute, solo, clear or undo any take.'],
   ];
   for (const [ic, t, d] of items) {
     const b = h('span', { class: 'help-ic' });
@@ -77,6 +78,8 @@ export function buildHelp(onClose: () => void): { el: HTMLElement; refresh: (s: 
     ['L', 'Next left-hand role'],
     ['H or ?', 'This help'],
     ['F', 'Fullscreen'],
+    ['1 – 4', 'Record loop 1–4'],
+    ['Backspace', 'Undo last loop take'],
     ['Esc', 'Close panels'],
   ] as const) {
     keys.append(h('div', null, h('dt', null, h('kbd', { text: k })), h('dd', { text: d })));
