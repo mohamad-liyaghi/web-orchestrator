@@ -24,6 +24,7 @@ and no analytics.
 
 - [Features](#features)
 - [How to play](#how-to-play)
+- [For musicians](#for-musicians)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
 - [Local development](#local-development) ([run it locally](#run-it-locally))
@@ -46,8 +47,13 @@ and no analytics.
   Samples load on demand when you pick an instrument.
 - **Second-hand roles.** The left hand can control the volume (theremin style, the default), play
   a bass line, play chords (finger patterns pick chords I to vii° of the key), or be ignored.
-- **One-tap presets.** Grand Stage, Opera Night, Theremin, Campfire and Night Groove set up the
-  instrument, second-hand role, key, scale, beat and reverb in one tap.
+- **One-tap presets.** Grand Stage, Opera Night, Theremin, Campfire, Folk Guitar, Reggae Skank,
+  Jazz Keys, Waltz, Harp Rolls, Synthwave Arp, Piano Ballad, Duduk Lament and Night Groove set up
+  the instrument, playing technique, key, scale, beat and effects in one tap.
+- **Played like the real thing.** Guitars strum real chord shapes, keys use the sustain pedal,
+  strings, winds and voices glide. Musicians get a Technique and a Studio tab with strum
+  patterns, voicings, an arpeggiator, bass lines, tuning, time signatures, swing and an effects
+  rack (see [For musicians](#for-musicians)).
 - **Hand gestures with configurable actions.** Hold a pose for half a second to trigger an
   action: by default a fist mutes, a peace sign switches to the next instrument, a thumbs-up starts
   or stops the beat and the rock sign shifts up an octave. Every gesture can be bound to another
@@ -122,6 +128,50 @@ In **Chords** mode the left hand's finger counts pick chords, so its poses never
 
 Tips: light your face from the front, keep a plain background behind your hands if you can, and
 start with a pentatonic scale: every note sounds good together.
+
+## For musicians
+
+Two tabs in the controls go deeper than the gestures. Every value is shown in musician units
+(Hz, cents, dB, %, note values), every studio slider double-clicks back to its default, and each
+tab has a reset button that only touches its own settings. Everything is reachable by keyboard
+and labelled for screen readers, and the controls become a bottom sheet on phones.
+
+### Technique
+
+The Technique tab is instrument-aware: it shows the controls that matter for the instruments
+playing right now (the lead, the chord instrument and the bass line) and hides the rest.
+
+| Control | What it does |
+| --- | --- |
+| Play style | **Auto** (default): each instrument plays like the real one. Guitars strum real six-string chord shapes string by string, keys use the sustain pedal, strings, winds and voices play legato with a little glide, basses walk, mallets roll. **Manual**: exactly the settings below, nothing added. |
+| Chord play | Block, strum or arpeggio. |
+| Voicing | Guitar shapes, close, open, drop-2 or spread. |
+| Strum pattern | Single, Down-up, Folk, Pop, Reggae or Ballad, each drawn as a one-bar rhythm (for example Folk is `D · D U · U D U`). |
+| Palm mute | Short, damped, chunky strums on guitars. |
+| Sustain pedal | Keys: Auto (lifted on every chord change), Hold or Off. |
+| Glide | Strings, winds, voices and synth leads: slide between connected notes. |
+| Arpeggiator | Up, down, up-down, random, broken or Alberti; rate 1/4, 1/8, 1/8 triplet, dotted 1/8, 1/16 or 1/16 triplet; one to three octaves. |
+| Bass pattern | Under chords: root, root-fifth, octave, walking or off. |
+| Harmony | On melodies: a second voice a 3rd above, a 6th below, a 5th above or an octave up, always in the key. |
+| Humanize | Small timing and loudness differences, like a real player. |
+
+### Studio
+
+| Control | What it does |
+| --- | --- |
+| Tuning | Concert pitch A4 from 415 to 466 Hz, with 432, 440 and 442 one tap away and the offset in cents. |
+| Transpose | −12 to +12 semitones with a "sounds as" note (−2 plays like a B♭ instrument). The lanes keep the written note names. |
+| Time signature | 4/4, 3/4, 6/8, 5/4 or 7/8. The metrics strip shows it with one dot per beat. |
+| Swing | From straight to a heavy shuffle on the beat, the arpeggiator and the looper. |
+| Count-in and click | One bar of clicks before a loop take or a song in tempo mode, and the click volume. |
+| Velocity curve | Soft, linear, hard or fixed: how mouth and hand expression turn into loudness. |
+| Attack and release | From the instrument's natural envelope to a slow swell or a long ring. |
+| Effects rack | Reverb (room, hall, plate or cathedral) and amount, tempo-synced delay with time and feedback, chorus, a 3-band EQ (±12 dB), a compressor and stereo width. |
+
+The metrics strip shows the time signature, and the tuning and transpose whenever they are not
+standard. In chords mode the chord deck shows the strum pattern with its rhythm, or the
+arpeggio rate. The presets Folk Guitar, Reggae Skank, Jazz Keys, Waltz, Harp Rolls and Synthwave
+Arp are good starting points.
 
 ## Tech stack
 
