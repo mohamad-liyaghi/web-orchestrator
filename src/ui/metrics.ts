@@ -79,6 +79,17 @@ export class MetricsStrip {
     );
     this.piano = new MiniPiano();
     this.el.append(row, this.piano.el);
+    // The row scrolls sideways when the cells do not fit (desktops up to ~1500 px hide Session and
+    // Instruments) and has no scrollbar: let a vertical mouse wheel scroll it too.
+    row.addEventListener(
+      'wheel',
+      (e) => {
+        if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY) || row.scrollWidth <= row.clientWidth + 1) return;
+        const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * row.clientWidth : e.deltaY;
+        row.scrollLeft += step;
+      },
+      { passive: true },
+    );
   }
 
   setScale(settings: Settings, scales: readonly ScaleDef[]): void {
