@@ -5,9 +5,9 @@ import {
   type FaceLandmarkerResult,
   type HandLandmarkerResult,
 } from '@mediapipe/tasks-vision';
-import { ASSETS } from '../config';
+import { ASSET_BYTES, ASSETS } from '../config';
 import { AppError, type LoadProgress, type Tracker, type TrackingFrame } from '../types';
-import { fetchWithProgress } from './download';
+import { download, releaseDownload } from './download';
 import { FaceTracker } from './face';
 import { HandTracker } from './hands';
 import { muteRuntimeLogs } from './logs';
@@ -181,14 +181,20 @@ export class MediaPipeTracker implements Tracker {
 
       // Download the runtime and both models in parallel with real byte progress. The runtime is
       // handed to MediaPipe as a blob URL so it is not downloaded a second time.
+      // A prefetch from the landing page may already be running: download() shares it.
       const [wasm, hand, face] = await Promise.all([
-        fetchWithProgress(fileset.wasmBinaryPath, progress('runtime', 'Loading the vision runtime')),
-        fetchWithProgress(ASSETS.handModel, progress('hands', 'Loading the hand model')),
-        fetchWithProgress(ASSETS.faceModel, progress('face', 'Loading the face model')),
+        download(fileset.wasmBinaryPath, ASSET_BYTES.wasm, progress('runtime', 'Downloading the vision engine')),
+        download(ASSETS.handModel, ASSET_BYTES.hand, progress('hands', 'Downloading the hand model')),
+        download(ASSETS.faceModel, ASSET_BYTES.face, progress('face', 'Downloading the face model')),
       ]);
+      for (const url of [fileset.wasmBinaryPath, ASSETS.handModel, ASSETS.faceModel]) releaseDownload(url);
       if (this.disposed) return;
       wasmUrl = URL.createObjectURL(new Blob([wasm], { type: 'application/wasm' }));
-      report({ stage: 'runtime', label: 'Vision runtime ready', loaded: wasm.byteLength, total: wasm.byteLength, done: true });
+      report({ stage: 'runtime', label: 'Vision engine downloaded', loaded: wasm.byteLength, total: wasm.byteLength, done: true });
+      report({ stage: 'hands', label: 'Hand model downloaded', loaded: hand.byteLength, total: hand.byteLength, done: true });
+      report({ stage: 'face', label: 'Face model downloaded', loaded: face.byteLength, total: face.byteLength, done: true });
+      // Compiling the runtime and building both trackers takes a moment, longest on phones.
+      report({ stage: 'warmup', label: 'Starting the vision engine', loaded: 0, total: 0, done: false });
 
       const sources: ModelSources = { fileset: { ...fileset, wasmBinaryPath: wasmUrl }, hand, face };
       const first: Delegate = this.options.delegate ?? (softwareWebGl() ? 'CPU' : 'GPU');
@@ -205,6 +211,7 @@ export class MediaPipeTracker implements Tracker {
       this.hands = created.hands;
       this.face = created.face;
       this.delegate = created.delegate;
+      report({ stage: 'warmup', label: `Tracking ready (${created.delegate})`, loaded: 1, total: 1, done: true });
     } catch (e) {
       this.initPromise = null; // allow a retry
       if (e instanceof AppError) throw e;
@@ -226,9 +233,8 @@ export class MediaPipeTracker implements Tracker {
     let hands: HandLandmarker | null = null;
     try {
       hands = await HandLandmarker.createFromOptions(src.fileset, { ...HAND_OPTIONS, baseOptions: base(src.hand) });
-      report?.({ stage: 'hands', label: `Hand tracking ready (${delegate})`, loaded: 1, total: 1, done: true });
+      report?.({ stage: 'warmup', label: 'Starting face tracking', loaded: 1, total: 2, done: false });
       const face = await FaceLandmarker.createFromOptions(src.fileset, { ...FACE_OPTIONS, baseOptions: base(src.face) });
-      report?.({ stage: 'face', label: `Face tracking ready (${delegate})`, loaded: 1, total: 1, done: true });
       return { hands, face, delegate };
     } catch (e) {
       hands?.close();

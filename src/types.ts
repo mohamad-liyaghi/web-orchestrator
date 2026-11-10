@@ -56,7 +56,8 @@ export class AppError extends Error {
 
 /** Boot / asset loading progress, shown by the UI. `total` is 0 when unknown. */
 export interface LoadProgress {
-  stage: 'runtime' | 'hands' | 'face' | 'camera' | 'audio';
+  /** warmup = compiling the vision runtime and building the trackers after the downloads. */
+  stage: 'runtime' | 'hands' | 'face' | 'camera' | 'audio' | 'warmup';
   label: string;
   loaded: number;
   total: number;

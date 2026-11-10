@@ -14,4 +14,20 @@ export const ASSETS = {
   samples: `${base}samples`,
 } as const;
 
+/**
+ * Uncompressed sizes of the tracking downloads (pinned package/model versions). Used as the
+ * progress total when the server compresses a file (Content-Length is then the compressed size)
+ * and to tell players up front how much the first start downloads. Later starts hit the cache.
+ */
+export const ASSET_BYTES = {
+  wasm: 11_153_617,
+  hand: 7_819_105,
+  face: 3_758_596,
+} as const;
+
+export const FIRST_START_BYTES = ASSET_BYTES.wasm + ASSET_BYTES.hand + ASSET_BYTES.face;
+
+/** "22.7 MB" */
+export const formatMB = (bytes: number): string => `${(bytes / 1_000_000).toFixed(bytes >= 10_000_000 ? 0 : 1)} MB`;
+
 export const APP_NAME = 'Orchestrator';
