@@ -11,7 +11,7 @@ import {
   type TrackingFrame,
   type VoiceState,
 } from './types';
-import { cameraIdOf, closeCamera, createTracker, listCameras, openCamera } from './tracking';
+import { cameraIdOf, closeCamera, createTracker, listCameras, openCamera, prefetchTrackingAssets } from './tracking';
 import { createMusicEngine } from './music';
 import { mountLanding, mountStage } from './ui';
 import { MockTracker } from './dev/mockTracker';
@@ -100,6 +100,16 @@ export class App {
     this.showLanding();
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('pagehide', this.onPageHide);
+    // Give the first start a head start on desktop (never on phones or with data saver), once the
+    // landing page has painted and settled.
+    if (!MOCK) {
+      const idle = (cb: () => void): void => {
+        const ric = (window as Window & { requestIdleCallback?: Window['requestIdleCallback'] }).requestIdleCallback;
+        if (ric) ric.call(window, cb, { timeout: 4000 });
+        else setTimeout(cb, 1500);
+      };
+      window.setTimeout(() => idle(prefetchTrackingAssets), 1200);
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -115,7 +125,7 @@ export class App {
   private async start(): Promise<void> {
     if (this.starting || this.running) return;
     this.starting = true;
-    this.landing?.setBusy(true, 'Tuning the orchestra…');
+    this.landing?.setBusy(true, 'Preparing everything…');
 
     // Must run synchronously inside the click/tap handler (autoplay policies, iOS).
     const audioReady = this.engine.unlock().catch((e: unknown) => {
@@ -163,9 +173,11 @@ export class App {
         void this.refreshCameras();
         navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
       }
+      stage.setBootProgress({ stage: 'camera', label: 'Camera on', loaded: 1, total: 1, done: true });
       stage.setBootProgress({ stage: 'audio', label: 'Starting audio', loaded: 0, total: 0, done: false });
       await audioReady;
       if (this.stage !== stage) return; // left while audio was starting; teardown closed the camera
+      stage.setBootProgress({ stage: 'audio', label: 'Sound ready', loaded: 1, total: 1, done: true });
       this.engine.configure(this.settings);
       // MIDI out was turned on in an earlier session: reconnect (the browser remembers the grant).
       if (this.settings.midiOut) void this.enableMidi();

@@ -11,6 +11,7 @@ import type { Tracker } from '../types';
 import { MediaPipeTracker } from './tracker';
 
 export { openCamera, closeCamera, listCameras, cameraIdOf } from './camera';
+export { prefetchTrackingAssets } from './prefetch';
 
 export function createTracker(): Tracker {
   return new MediaPipeTracker();
