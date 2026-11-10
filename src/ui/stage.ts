@@ -125,6 +125,9 @@ class Stage implements StageView {
   private flashOn = false;
   private readonly help: HTMLElement;
   private readonly helpRefresh: (s: Settings) => void;
+  /** Stage parts made inert while the help dialog is open, and where focus goes back on close. */
+  private readonly helpInert: HTMLElement[] = [];
+  private helpReturn: HTMLElement | null = null;
   private readonly toasts: HTMLElement;
   private readonly errorLayer: HTMLElement;
   private lastNow = 0;
@@ -549,12 +552,24 @@ class Stage implements StageView {
   private toggleHelp(force?: boolean): void {
     const open = force ?? this.help.hidden;
     if (open) {
+      if (!this.help.hidden) return;
       this.dock.close();
       this.helpRefresh(this.settings);
+      this.helpReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      // A modal dialog: keep Tab inside it (the sheet manages its own inert state; toasts stay live).
+      for (const child of Array.from(this.el.children)) {
+        if (child === this.help || child === this.toasts || child === this.dock.sheet || !(child instanceof HTMLElement) || child.inert) continue;
+        child.inert = true;
+        this.helpInert.push(child);
+      }
       this.help.hidden = false;
       this.help.querySelector<HTMLElement>('.help-close')?.focus();
     } else if (!this.help.hidden) {
       this.help.hidden = true;
+      for (const child of this.helpInert) child.inert = false;
+      this.helpInert.length = 0;
+      if (this.helpReturn?.isConnected) this.helpReturn.focus({ preventScroll: true });
+      this.helpReturn = null;
     }
   }
 
