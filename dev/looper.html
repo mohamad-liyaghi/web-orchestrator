@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:," />
+    <title>Looper + MIDI harness</title>
+    <style>
+      body { margin: 0; padding: 16px; background: #05060a; color: #d7e3ff; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      h1 { font-size: 15px; margin: 0 0 12px; color: #7dd3fc; }
+      button { background: #111827; color: inherit; border: 1px solid #334155; border-radius: 6px; padding: 5px 9px; font: inherit; }
+      pre { background: #0b1020; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>Looper + MIDI out harness (real engine, synthetic hands, mocked Web MIDI)</h1>
+    <p>
+      <button id="looper">Run looper test</button>
+      <button id="midi">Run MIDI test</button>
+    </p>
+    <pre id="out">Headless: node dev/music-check.mjs http://localhost:5186/dev/looper.html "window.__looperSelfTest()"</pre>
+    <script type="module" src="./looper.ts"></script>
+  </body>
+</html>
