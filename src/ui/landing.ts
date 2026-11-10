@@ -42,7 +42,7 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
   const hero = h('div', { class: 'hero' });
   const copy = h('div', { class: 'hero-copy' });
   const eyebrow = h('p', { class: 'hero-eyebrow' });
-  eyebrow.append(h('span', { class: 'live-dot', 'aria-hidden': 'true' }), h('span', { text: 'Air instrument · 30+ voices · live in your browser' }));
+  eyebrow.append(h('span', { class: 'live-dot', 'aria-hidden': 'true' }), h('span', { text: 'Air instrument · 50+ voices · live in your browser' }));
   const title = h('h1', { class: 'hero-title' });
   title.append('Play music', h('br'), h('span', { class: 'grad-text', text: 'out of thin air.' }));
   const sub = h('p', {
@@ -56,7 +56,7 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
   const errorSlot = h('div', { class: 'error-slot', 'aria-live': 'assertive' });
   const stats = h('ul', { class: 'hero-stats', 'aria-label': 'Highlights' });
   for (const [k, v] of [
-    ['30+', 'instruments'],
+    ['50+', 'instruments'],
     ['11', 'families'],
     ['0', 'uploads'],
   ] as const) {
