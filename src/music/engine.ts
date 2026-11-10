@@ -13,6 +13,7 @@
 import { Compressor, Convolver, FeedbackDelay, Filter, Gain, Limiter, ToneAudioBuffer, Vibrato } from 'tone/build/esm/classes.js';
 import { Context } from 'tone/build/esm/core/context/Context.js';
 import { setContext } from 'tone/build/esm/core/Global.js';
+import './toneFixes';
 import type {
   ActionGesture,
   ChordPlay,
