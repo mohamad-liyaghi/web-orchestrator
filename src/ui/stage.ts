@@ -29,6 +29,7 @@ import { buildHelp } from './help';
 import { ChordDeck } from './chords';
 import { LooperPanel } from './looper';
 import { LearnOverlay, LearnPane } from './learn';
+import { BootPanel } from './boot';
 
 type FrameState = FrameVerdict | 'no-face' | 'waiting';
 
@@ -46,14 +47,6 @@ const FRAME_TEXT: Record<FrameState, string> = {
   'no-face': 'Face the camera',
   waiting: 'Starting camera',
 };
-
-const BOOT_STEPS: ReadonlyArray<{ stage: LoadProgress['stage']; label: string }> = [
-  { stage: 'camera', label: 'Camera' },
-  { stage: 'runtime', label: 'Vision runtime' },
-  { stage: 'hands', label: 'Hand tracker' },
-  { stage: 'face', label: 'Face tracker' },
-  { stage: 'audio', label: 'Audio engine' },
-];
 
 const fullscreenSupported = (): boolean =>
   !!(document.fullscreenEnabled || (document as Document & { webkitFullscreenEnabled?: boolean }).webkitFullscreenEnabled);
@@ -115,12 +108,7 @@ class Stage implements StageView {
   private recStart = 0;
 
   // overlays
-  private readonly boot: HTMLElement;
-  private readonly bootLabel: TextSlot;
-  private readonly bootFill: HTMLElement;
-  private readonly bootHint: HTMLElement;
-  private readonly bootSteps = new Map<LoadProgress['stage'], HTMLElement>();
-  private bootHideTimer = 0;
+  private readonly bootPanel: BootPanel;
   private readonly coach: HTMLElement;
   private readonly coachText: TextSlot;
   private coachKey = '';
@@ -233,27 +221,7 @@ class Stage implements StageView {
     const bottom = h('div', { class: 'bottom' }, this.chordDeck.el, this.looper?.el, this.metrics.el, this.dock.dock);
 
     // ---- boot overlay -------------------------------------------------------------------
-    this.bootLabel = new TextSlot(h('p', { class: 'boot-label' }));
-    this.bootFill = h('span', { class: 'boot-fill' });
-    this.bootHint = h('p', { class: 'boot-hint' });
-    this.bootHint.append(icon('camera'), h('span', { text: 'Allow camera access when your browser asks. The video stays on this device.' }));
-    const stepList = h('ol', { class: 'boot-steps' });
-    for (const s of BOOT_STEPS) {
-      const li = h('li', { class: 'boot-step' }, h('span', { class: 'boot-tick', 'aria-hidden': 'true' }), h('span', { text: s.label }));
-      this.bootSteps.set(s.stage, li);
-      stepList.append(li);
-    }
-    const bootCard = h(
-      'div',
-      { class: 'boot-card glass' },
-      h('div', { class: 'boot-orb', 'aria-hidden': 'true' }),
-      h('h2', { class: 'boot-title', text: 'Tuning the orchestra' }),
-      this.bootLabel.el,
-      h('div', { class: 'boot-bar', role: 'progressbar', 'aria-label': 'Loading' }, this.bootFill),
-      stepList,
-      this.bootHint,
-    );
-    this.boot = h('div', { class: 'boot', role: 'status', 'aria-live': 'polite', hidden: true }, bootCard);
+    this.bootPanel = new BootPanel();
 
     // ---- help, toasts, errors -----------------------------------------------------------
     const helpParts = buildHelp(() => this.toggleHelp(false));
@@ -272,7 +240,7 @@ class Stage implements StageView {
       this.learnOverlay.card,
       this.dock.scrim,
       this.dock.sheet,
-      this.boot,
+      this.bootPanel.el,
       this.help,
       this.errorLayer,
       this.toasts,
@@ -342,31 +310,7 @@ class Stage implements StageView {
   }
 
   setBootProgress(p: LoadProgress | null): void {
-    window.clearTimeout(this.bootHideTimer);
-    if (!p) {
-      this.boot.classList.add('is-leaving');
-      this.bootHideTimer = window.setTimeout(() => {
-        this.boot.hidden = true;
-        this.boot.classList.remove('is-leaving');
-      }, 400);
-      return;
-    }
-    this.boot.hidden = false;
-    this.boot.classList.remove('is-leaving');
-    this.bootLabel.set(p.label);
-    const idx = BOOT_STEPS.findIndex((s) => s.stage === p.stage);
-    BOOT_STEPS.forEach((s, i) => {
-      const li = this.bootSteps.get(s.stage)!;
-      // Models load in parallel with the camera prompt, so mark by explicit completion too.
-      const done = li.classList.contains('is-done') || (p.stage === s.stage && p.done) || (i < idx && s.stage === 'camera');
-      setClass(li, 'is-done', done);
-      setClass(li, 'is-active', p.stage === s.stage && !p.done);
-    });
-    const doneCount = BOOT_STEPS.filter((s) => this.bootSteps.get(s.stage)!.classList.contains('is-done')).length;
-    const within = p.total > 0 ? Math.min(1, p.loaded / p.total) : p.done ? 1 : 0.35;
-    const frac = Math.min(1, (doneCount + (p.done ? 0 : within)) / BOOT_STEPS.length);
-    this.bootFill.style.transform = `scaleX(${Math.max(0.04, frac)})`;
-    this.bootHint.hidden = !(p.stage === 'camera' && !p.done);
+    this.bootPanel.update(p);
   }
 
   setLoadState(s: InstrumentLoadState): void {
@@ -448,7 +392,6 @@ class Stage implements StageView {
     this.bottomRo.disconnect();
     window.removeEventListener('keydown', this.onKey);
     document.removeEventListener('fullscreenchange', this.onFullscreen);
-    window.clearTimeout(this.bootHideTimer);
     this.dock.destroy();
     this.looper?.destroy();
     this.hud.destroy();

@@ -1,5 +1,5 @@
 import type { AppError, LandingView } from '../types';
-import { APP_NAME } from '../config';
+import { APP_NAME, FIRST_START_BYTES, formatMB } from '../config';
 import { FAMILIES, SHOWCASE, familyMeta } from './catalog';
 import { frag, h, prefersReducedMotion } from './dom';
 import { buildErrorCard } from './errors';
@@ -51,7 +51,7 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
   });
   const primary = makeCta(opts.onStart, 'cta-hero');
   const ctaNote = h('p', { class: 'cta-note' });
-  ctaNote.append(icon('lock'), h('span', { text: 'Camera stays on this device. Free, no sign-up.' }));
+  ctaNote.append(icon('lock'), h('span', { text: `Camera stays on this device. Free, no sign-up. First start downloads about ${formatMB(FIRST_START_BYTES)}, then it opens from cache.` }));
   const ctaRow = h('div', { class: 'cta-row' }, primary.btn, ctaNote);
   const errorSlot = h('div', { class: 'error-slot', 'aria-live': 'assertive' });
   const stats = h('ul', { class: 'hero-stats', 'aria-label': 'Highlights' });
