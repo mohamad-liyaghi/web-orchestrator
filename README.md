@@ -49,8 +49,8 @@ and no analytics.
 - **Hand gestures with configurable actions.** Hold a pose for half a second to trigger an
   action: by default a fist mutes, a peace sign switches to the next instrument, a thumbs-up starts
   or stops the beat and the rock sign shifts up an octave. Every gesture can be bound to another
-  action (octave down, previous instrument, next preset, next scale, start/stop recording) or
-  switched off.
+  action (octave down, previous instrument, next preset, next scale, start/stop recording, record
+  the next loop track) or switched off.
 - **Scales and keys.** Major, minor, major and minor pentatonic, blues, dorian, mixolydian,
   harmonic minor, Japanese, chromatic, and a continuous mode for free glides. Any of the 12 keys,
   an octave shift and an adjustable note span. Note lanes on screen show where every note is.
@@ -68,6 +68,18 @@ and no analytics.
 - **Fullscreen and help.** A fullscreen stage for performing and a help overlay that explains
   every gesture.
 - **Groove.** An optional backing beat with adjustable tempo (60 to 160 BPM).
+- **Looper.** Four loop tracks of 1, 2, 4 or 8 bars, locked to the beat. Press 1 to 4 (or open
+  the looper from the top bar, or bind a gesture): from silence a one-bar count-in clicks, you play
+  one pass and it repeats. Each track keeps the instruments it was played with, so you can layer
+  a bass line, chords and a melody with different instruments. Timing is tightened gently toward
+  the sixteenth grid so it stays human. Mute, solo, clear, clear all and undo any take
+  (Backspace). Loops keep playing without the beat, and recordings include them.
+- **MIDI out.** Where the browser has Web MIDI (Chrome, Edge, Firefox; not Safari), play any
+  synth, DAW or hardware with your hands: the lead on the chosen channel, the bass on the next one,
+  loudness as velocity and CC 11, "all notes off" on stop. Devices can be plugged in and out while
+  playing. An optional MIDI-only mode mutes the built-in sound of your hands.
+- **Camera picker.** With more than one camera, pick one in Setup. The choice is remembered and
+  the app falls back to the default camera when it is unplugged.
 - **Recording.** Record a take and download it as an audio file (WebM or M4A, whichever your
   browser records).
 - **Three trigger modes.** Mouth (default), thumb-to-index pinch, or always on while a hand is in
