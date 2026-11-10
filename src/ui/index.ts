@@ -1,17 +1,15 @@
 /**
- * UI module public API: landing page, stage (video + HUD overlay + controls).
- * Implementation: see the UI brief / README.
+ * UI module public API: landing page, stage (video + HUD overlay + metrics + controls).
  */
-import type { LandingView, StageCallbacks, StageView } from '../types';
+import '@fontsource-variable/space-grotesk/wght.css';
+import '@fontsource-variable/jetbrains-mono/wght.css';
+import './styles/tokens.css';
+import './styles/base.css';
+import './styles/landing.css';
+import './styles/stage.css';
+import './styles/metrics.css';
+import './styles/dock.css';
+import './styles/overlays.css';
 
-export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): LandingView {
-  void root;
-  void opts;
-  throw new Error('ui: not implemented yet');
-}
-
-export function mountStage(root: HTMLElement, callbacks: StageCallbacks): StageView {
-  void root;
-  void callbacks;
-  throw new Error('ui: not implemented yet');
-}
+export { mountLanding } from './landing';
+export { mountStage } from './stage';

@@ -1,4 +1,5 @@
 import type { HandState, InstrumentDef, Lane, Settings, StageRenderData, VoiceState } from '../types';
+import { GESTURE_GLYPH } from '../gestures';
 import { HAND_CONNECTIONS } from './illustrations';
 
 /**
@@ -16,6 +17,8 @@ const WHITE = '#eef1ff';
 const FONT_CHIP = '600 11px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
 const FONT_LANE = '500 10.5px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
 const FONT_LANE_ON = '700 12px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
+const FONT_GLYPH = '13px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+const FONT_GLYPH_BIG = '16px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 const FONT_TAG = '700 10px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace';
 const MAX_PARTICLES = 160;
 const MAX_SPRITES = 48;
@@ -39,12 +42,18 @@ interface Slot {
   /** ms since the last onset, large = no pulse */
   pulse: number;
   gauge: number;
-  // label cache
-  labelKey: string;
+  // label cache: the parts the label was last built from
+  lk: { role: Role | ''; inst: string; note: string; pct: number; glyph: string; left: string };
+  dirty: boolean;
   roleText: string;
   restText: string;
   roleW: number;
   restW: number;
+  glyph: string;
+  glyphW: number;
+  /** Gesture hold progress 0..1 (smoothed), for the ring. */
+  hold: number;
+  holdGlyph: string;
 }
 
 const makeSlot = (): Slot => ({
@@ -63,11 +72,16 @@ const makeSlot = (): Slot => ({
   velocity: 0,
   pulse: 1e9,
   gauge: 0,
-  labelKey: '',
+  lk: { role: '', inst: '', note: '', pct: -1, glyph: '', left: '' },
+  dirty: true,
   roleText: '',
   restText: '',
   roleW: 0,
   restW: 0,
+  glyph: '',
+  glyphW: 0,
+  hold: 0,
+  holdGlyph: '',
 });
 
 /** Frame-rate independent exponential smoothing factor. */
@@ -139,7 +153,7 @@ export class HudRenderer {
 
   /** Fonts finished loading: label widths must be measured again. */
   invalidateText(): void {
-    for (const s of this.slots) s.labelKey = '';
+    for (const s of this.slots) s.dirty = true;
     this.laneKey = '';
   }
 
@@ -211,6 +225,11 @@ export class HudRenderer {
       const slot = this.slots[hand.id & 1]!;
       slot.seen = true;
       this.updateSlot(slot, hand, dt, sx, sy, ox, oy, data, settings, lead, bass, leadColor, bassColor);
+      const pend = data.pendingGesture;
+      const target = pend && pend.handId === hand.id ? pend.progress : 0;
+      if (pend && pend.handId === hand.id) slot.holdGlyph = GESTURE_GLYPH[pend.gesture];
+      // Rise quickly with the hold, drop fast when it fires or is released.
+      slot.hold = target >= slot.hold ? target : Math.max(target, slot.hold - dt / 120);
       if (settings.skeleton) this.drawSkeleton(hand, slot, sx, sy, ox, oy);
     }
     for (const slot of this.slots) {
@@ -481,37 +500,45 @@ export class HudRenderer {
     }
     slot.alpha = Math.min(1, Math.min(slot.alpha + dt / 160, hand.age / 250));
 
-    // Label: rebuild only when its content changes.
-    let roleText = '';
-    let rest = '';
-    let key = '';
+    // Label: compare the parts, rebuild + measure only when one changed (no per-frame strings).
+    const g = hand.gesture;
+    const glyph = g === 'fist' || g === 'peace' || g === 'thumbs-up' || g === 'rock' ? GESTURE_GLYPH[g] : '';
+    const inst = voice ? voice.instrument : '';
+    const note = voice ? voice.note : '';
+    const pct = role === 'volume' ? Math.round(data.metrics.handVolume * 100) : -1;
+    const lk = slot.lk;
+    if (lk.role === role && lk.inst === inst && lk.note === note && lk.pct === pct && lk.glyph === glyph && lk.left === settings.leftHand && !slot.dirty) return;
+    lk.role = role;
+    lk.inst = inst;
+    lk.note = note;
+    lk.pct = pct;
+    lk.glyph = glyph;
+    lk.left = settings.leftHand;
+    slot.dirty = false;
+    let roleText: string;
+    let rest: string;
     if (role === 'lead' || role === 'bass') {
-      const name = this.instruments.get(voice!.instrument)?.name ?? voice!.instrument;
+      const name = this.instruments.get(inst)?.name ?? inst;
       roleText = role === 'lead' ? 'LEAD' : 'BASS';
-      key = roleText + name + voice!.note;
-      if (key !== slot.labelKey) rest = voice!.note ? ` · ${name} · ${voice!.note}` : ` · ${name}`;
+      rest = note ? ` · ${name} · ${note}` : ` · ${name}`;
     } else if (role === 'chords') {
       roleText = 'CHORDS';
-      key = roleText + voice!.note;
-      if (key !== slot.labelKey) rest = ` · ${voice!.note || '—'}`;
+      rest = ` · ${note || '—'}`;
     } else if (role === 'volume') {
       roleText = 'VOLUME';
-      const pct = Math.round(data.metrics.handVolume * 100);
-      key = roleText + pct;
-      if (key !== slot.labelKey) rest = ` ${pct}%`;
+      rest = ` ${pct}%`;
     } else {
       roleText = settings.leftHand === 'off' ? 'LEFT HAND' : 'HAND';
-      key = roleText + settings.leftHand;
-      if (key !== slot.labelKey) rest = settings.leftHand === 'off' ? ' · off' : '';
+      rest = settings.leftHand === 'off' ? ' · off' : '';
     }
-    if (key !== slot.labelKey) {
-      slot.labelKey = key;
-      slot.roleText = roleText;
-      slot.restText = rest;
-      this.ctx.font = FONT_CHIP;
-      slot.roleW = this.ctx.measureText(roleText).width;
-      slot.restW = rest ? this.ctx.measureText(rest).width : 0;
-    }
+    slot.glyph = glyph;
+    slot.roleText = roleText;
+    slot.restText = rest;
+    this.ctx.font = FONT_CHIP;
+    slot.roleW = this.ctx.measureText(roleText).width;
+    slot.restW = rest ? this.ctx.measureText(rest).width : 0;
+    this.ctx.font = FONT_GLYPH;
+    slot.glyphW = glyph ? this.ctx.measureText(glyph).width + 8 : 0;
   }
 
   private drawSkeleton(hand: HandState, slot: Slot, sx: number, sy: number, ox: number, oy: number): void {
@@ -610,7 +637,7 @@ export class HudRenderer {
 
     // Label chip above the box (below it when the box touches the top).
     const chipH = 22;
-    const chipW = slot.roleW + slot.restW + 18;
+    const chipW = slot.roleW + slot.restW + slot.glyphW + 18;
     let cx = x;
     let cy = y - chipH - 8;
     if (cy < 64) cy = y + h + 8;
@@ -633,6 +660,35 @@ export class HudRenderer {
     if (slot.restText) {
       ctx.fillStyle = WHITE;
       ctx.fillText(slot.restText, cx + 9 + slot.roleW, cy + chipH / 2 + 0.5);
+    }
+    if (slot.glyph) {
+      ctx.font = FONT_GLYPH;
+      ctx.fillText(slot.glyph, cx + 9 + slot.roleW + slot.restW + 8, cy + chipH / 2 + 1);
+    }
+
+    // Gesture hold ring at the top-right corner of the square.
+    if (slot.hold > 0.01) {
+      const rx = x + w;
+      const ry = y;
+      const rr = 17;
+      ctx.globalAlpha = alpha * Math.min(1, slot.hold * 4);
+      ctx.fillStyle = 'rgba(5,6,10,0.8)';
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(200,215,255,0.22)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, slot.hold));
+      ctx.stroke();
+      ctx.font = FONT_GLYPH_BIG;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = WHITE;
+      ctx.fillText(slot.holdGlyph, rx, ry + 1);
+      ctx.textAlign = 'left';
     }
 
     // Volume gauge beside the volume hand (on the outer side).
