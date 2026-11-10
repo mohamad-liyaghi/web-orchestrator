@@ -600,6 +600,12 @@ export interface StageCallbacks {
   onLearn?(songId: string | null, mode?: LearnMode): void;
 }
 
+/** A camera the user can pick. */
+export interface CameraInfo {
+  deviceId: string;
+  label: string;
+}
+
 export interface HudStatus {
   fps: number;
   delegate: 'GPU' | 'CPU' | null;

@@ -1,7 +1,8 @@
 /**
  * Tracking module public API.
  * - createTracker(): MediaPipe HandLandmarker + FaceLandmarker (GPU delegate, CPU fallback)
- * - openCamera()/closeCamera(): front camera stream attached to the stage <video>
+ * - openCamera()/closeCamera(): camera stream (default front, or a picked device) on the stage <video>
+ * - listCameras(): the video inputs to choose from (after permission)
  *
  * Frames passed to onFrame are reused: each TrackingFrame (and the HandState / FaceState objects
  * inside it) stays valid until the next-but-one frame. Copy values you need to keep longer.
@@ -9,7 +10,7 @@
 import type { Tracker } from '../types';
 import { MediaPipeTracker } from './tracker';
 
-export { openCamera, closeCamera } from './camera';
+export { openCamera, closeCamera, listCameras, cameraIdOf } from './camera';
 
 export function createTracker(): Tracker {
   return new MediaPipeTracker();

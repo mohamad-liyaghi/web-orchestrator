@@ -1,4 +1,4 @@
-import { AppError } from '../types';
+import { AppError, type CameraInfo } from '../types';
 
 /** How long we wait for the first decoded frame once permission is granted. */
 const FIRST_FRAME_TIMEOUT_MS = 10_000;
@@ -67,14 +67,25 @@ export function cameraError(e: unknown): AppError {
   }
 }
 
-async function requestStream(): Promise<MediaStream> {
+function constraintsFor(deviceId: string | undefined): [preferred: MediaStreamConstraints, fallback: MediaStreamConstraints] {
+  if (!deviceId) return [PREFERRED, FALLBACK];
+  const video = PREFERRED.video as MediaTrackConstraints;
+  const { facingMode: _facing, ...rest } = video;
+  return [
+    { audio: false, video: { ...rest, deviceId: { exact: deviceId } } },
+    { audio: false, video: { deviceId: { exact: deviceId } } },
+  ];
+}
+
+async function requestStream(deviceId?: string): Promise<MediaStream> {
+  const [preferred, fallback] = constraintsFor(deviceId);
   try {
-    return await navigator.mediaDevices.getUserMedia(PREFERRED);
+    return await navigator.mediaDevices.getUserMedia(preferred);
   } catch (e) {
     // Some devices reject the ideal size/rate combination outright; any camera beats none.
     const name = errorName(e);
     if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
-      return navigator.mediaDevices.getUserMedia(FALLBACK);
+      return navigator.mediaDevices.getUserMedia(fallback);
     }
     throw e;
   }
@@ -128,10 +139,11 @@ function waitForMetadata(video: HTMLVideoElement, ms: number): Promise<void> {
 }
 
 /**
- * Opens the front camera, attaches it to `video` and resolves once frames are flowing.
+ * Opens a camera (`deviceId`, or the default front camera), attaches it to `video` and resolves
+ * once frames are flowing. A specific device that is gone fails with 'camera-not-found'.
  * Throws AppError: insecure-context | no-camera-api | camera-denied | camera-not-found | camera-in-use.
  */
-export async function openCamera(video: HTMLVideoElement): Promise<MediaStream> {
+export async function openCamera(video: HTMLVideoElement, deviceId?: string): Promise<MediaStream> {
   if (!window.isSecureContext) {
     throw new AppError('insecure-context', 'The camera only works on a secure connection. Open this page over https (or on localhost).');
   }
@@ -144,7 +156,7 @@ export async function openCamera(video: HTMLVideoElement): Promise<MediaStream> 
 
   let stream: MediaStream;
   try {
-    stream = await requestStream();
+    stream = await requestStream(deviceId || undefined);
   } catch (e) {
     throw cameraError(e);
   }
@@ -189,4 +201,29 @@ export function closeCamera(stream: MediaStream | null, video?: HTMLVideoElement
     video.pause();
     video.srcObject = null;
   }
+}
+
+/**
+ * The video inputs, labelled. Labels (and stable ids) are only exposed once camera permission
+ * was granted, so call this after openCamera(). Unnamed devices get "Camera 1", "Camera 2"...
+ */
+export async function listCameras(): Promise<CameraInfo[]> {
+  if (typeof navigator.mediaDevices?.enumerateDevices !== 'function') return [];
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const out: CameraInfo[] = [];
+    for (const d of devices) {
+      if (d.kind !== 'videoinput' || !d.deviceId) continue;
+      out.push({ deviceId: d.deviceId, label: d.label || `Camera ${out.length + 1}` });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** deviceId of the camera a stream comes from ('' when unknown). */
+export function cameraIdOf(stream: MediaStream | null): string {
+  const track = stream?.getVideoTracks()[0];
+  return track?.getSettings().deviceId ?? '';
 }
