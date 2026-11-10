@@ -41,8 +41,8 @@ and no analytics.
 
 - **Gesture instrument.** Fingertip height picks the pitch, mouth opening is the gate and the
   loudness. The lead voice follows your right hand, or your only hand.
-- **51 instruments** in 11 families: pianos and keys, acoustic and electric guitars, basses,
-  strings, an opera choir, brass, woodwinds, mallets, organs, world instruments and synthesizers.
+- **52 instruments** in 11 families: pianos and keys, acoustic and electric guitars, basses,
+  strings, an opera choir, brass, woodwinds, mallets, organs, world instruments (including the Armenian duduk) and synthesizers.
   Samples load on demand when you pick an instrument.
 - **Second-hand roles.** The left hand can control the volume (theremin style, the default), play
   a bass line, play chords (finger patterns pick chords I to vii° of the key), or be ignored.

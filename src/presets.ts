@@ -47,6 +47,13 @@ export const PRESETS: readonly Preset[] = [
     settings: { mode: 'chords', lead: 'grand-piano', bass: 'electric-bass', chordPlay: 'arp', trigger: 'mouth', key: 9, scale: 'minor', groove: false, tempo: 76, reverb: 0.5 },
   },
   {
+    id: 'duduk-lament',
+    name: 'Duduk Lament',
+    glyph: '🍑',
+    description: 'Armenian duduk over a string drone in D harmonic minor. Raise your left hand to swell.',
+    settings: { mode: 'melody', lead: 'duduk', bass: 'string-ensemble', leftHand: 'volume', trigger: 'always', key: 2, scale: 'harmonic-minor', groove: false, reverb: 0.6 },
+  },
+  {
     id: 'night-groove',
     name: 'Night Groove',
     glyph: '🌙',
