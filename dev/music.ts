@@ -254,8 +254,10 @@ async function selfTest(): Promise<Report> {
   for (const inst of engine.instruments) {
     const [load] = await setAndLoad({ lead: inst.id }, [inst.id]);
     const play = await drive(() => frame([hand(0, 'right', 0.7, { y: 0.5 })]), 450);
+    const dbg = engine as unknown as { lead: { player: { spec: { id: string }; activeCount: number } | null } };
+    const playing = `${dbg.lead.player?.spec.id}:${dbg.lead.player?.activeCount}`;
     const off = await quiet(inst.sustained ? 900 : 1600);
-    perInstrument.push({ id: inst.id, kind: inst.kind, sizeKB: inst.sizeKB, load: load!.ok, loadMs: load!.ms, error: load!.error, peak: Number(play.peak.toFixed(4)), note: play.voices[0]!.note, silentAfter: off.ok, ok: load!.ok && play.peak > 0.01 && off.ok });
+    perInstrument.push({ id: inst.id, kind: inst.kind, sizeKB: inst.sizeKB, load: load!.ok, loadMs: load!.ms, error: load!.error, peak: Number(play.peak.toFixed(4)), note: play.voices[0]!.note, silentAfter: off.ok, playing, onsets: play.onsets, ok: load!.ok && play.peak > 0.01 && off.ok });
   }
   report.instruments = perInstrument;
   report.instrumentsOk = perInstrument.filter((r) => r.ok).length + '/' + perInstrument.length;
@@ -464,12 +466,13 @@ window.__musicSelfTest = selfTest;
   await engine.unlock();
   settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, trigger: 'always', leftHand: 'off', reverb: 0 };
   engine.configure(settings);
+  engine.setPlayZone({ y0: 0.1, y1: 0.86 });
   const out: Record<string, number> = {};
   for (const id of ids) {
     await setAndLoad({ lead: id }, [id]);
     const r = await drive(() => frame([hand(0, 'right', 0.7, { y: 0.5 })]), ms);
     out[id] = Number(r.peak.toFixed(4));
-    await quiet(1200);
+    await quiet(engine.instruments.find((i) => i.id === id)?.sustained ? 900 : 1600);
   }
   return out;
 };
