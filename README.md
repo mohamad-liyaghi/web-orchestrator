@@ -317,7 +317,7 @@ If the proxy is the only entry point, you can drop the public HTTPS port by remo
 | Caching | `assets/*` (hashed) immutable for 1 year; wasm, models and samples 30 days; `index.html` revalidated on every load; errors never cached |
 | Compression | gzip for HTML, JS, CSS, JSON, SVG and wasm; large files are pre-compressed at build time |
 | Routing | unknown paths without a file extension fall back to `index.html`; missing files are real 404s |
-| Headers | `Permissions-Policy` (camera for this origin only, everything else off), `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy`, no server version |
+| Headers | `Permissions-Policy` (camera, MIDI and fullscreen for this origin only, everything else off), `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy`, no server version |
 | Hardening | non-root user, read-only root filesystem with a small tmpfs, all capabilities dropped, `no-new-privileges`, memory and process limits, rotated JSON logs |
 
 The Content-Security-Policy lives in [`deploy/csp.conf`](deploy/csp.conf). Its header comments
