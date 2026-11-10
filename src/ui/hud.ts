@@ -1,6 +1,7 @@
 import type { HandState, InstrumentDef, Lane, Settings, StageRenderData, VoiceState } from '../types';
 import { GESTURE_GLYPH } from '../gestures';
 import { HAND_CONNECTIONS } from './illustrations';
+import { prefersReducedMotion } from './dom';
 
 /**
  * Canvas 2D overlay: hand brackets + label chips, fingertip reticles, skeleton, face box, lips,
@@ -120,6 +121,8 @@ export class HudRenderer {
   private readonly face = { seen: false, alpha: 0, x: 0, y: 0, w: 0, h: 0, init: false, noFaceMs: 0 };
   private lanesAlpha = 0;
   private tilt = false;
+  /** prefers-reduced-motion: no particle trail, no expanding pulse rings. */
+  private readonly reduced = prefersReducedMotion();
   private sprites = new Map<string, HTMLCanvasElement>();
   private bandGrads = new Map<string, CanvasGradient>();
   private laneLayer: HTMLCanvasElement | null = null;
@@ -209,7 +212,7 @@ export class HudRenderer {
     const ox = (w - sx) / 2;
     const oy = (h - sy) / 2;
 
-    const fancy = !this.lowPower && !this.degraded;
+    const fancy = !this.lowPower && !this.degraded && !this.reduced;
     let lead: VoiceState | null = null;
     let bass: VoiceState | null = null;
     for (const v of data.voices) {
@@ -635,7 +638,7 @@ export class HudRenderer {
     void dt;
     const ctx = this.ctx;
     const { x, y, w, h, alpha, color } = slot;
-    const pulse = slot.pulse < 420 ? 1 - slot.pulse / 420 : 0;
+    const pulse = !this.reduced && slot.pulse < 420 ? 1 - slot.pulse / 420 : 0;
     const len = Math.max(12, Math.min(40, Math.min(w, h) * 0.22)) * (1 + pulse * 0.25);
 
     // Faint full frame + bright corner brackets.

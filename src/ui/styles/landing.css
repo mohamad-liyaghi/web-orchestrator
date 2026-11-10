@@ -904,3 +904,23 @@
     display: none;
   }
 }
+
+.privacy-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.privacy-facts li {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(60, 242, 255, 0.28);
+  background: rgba(60, 242, 255, 0.06);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}

@@ -64,7 +64,7 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
   }
   copy.append(eyebrow, title, sub, ctaRow, errorSlot, stats);
 
-  const visual = h('div', { class: 'hero-visual', 'aria-hidden': 'false' });
+  const visual = h('div', { class: 'hero-visual' });
   const card = h('div', { class: 'pv-card glass' });
   card.append(frag(heroPreviewSvg()));
   const pvTop = h('div', { class: 'pv-top' });
@@ -145,6 +145,14 @@ export function mountLanding(root: HTMLElement, opts: { onStart: () => void }): 
       null,
       h('h2', { class: 'privacy-title', id: 'tips-title', text: 'Your camera never leaves this device.' }),
       h('p', { text: 'Hands and face are tracked inside your browser. No video, audio or images are uploaded, and nothing is stored unless you press record.' }),
+      h(
+        'ul',
+        { class: 'privacy-facts' },
+        h('li', { text: 'On-device tracking' }),
+        h('li', { text: 'No account' }),
+        h('li', { text: 'No cookies' }),
+        h('li', { text: 'Free' }),
+      ),
     ),
   );
   const tipList = h('ul', { class: 'tip-list' });
