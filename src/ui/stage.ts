@@ -67,6 +67,7 @@ class Stage implements StageView {
   readonly el: HTMLElement;
   readonly video: HTMLVideoElement;
   readonly viewport: HTMLElement;
+  private topbar: HTMLElement | null = null;
   private readonly canvas: HTMLCanvasElement;
   private readonly instruments = new Map<string, InstrumentDef>();
   private scales: readonly ScaleDef[] = [];
@@ -201,6 +202,7 @@ class Stage implements StageView {
     exitBtn.classList.add('exit-btn');
     const actions = h('div', { class: 'tb-actions' }, this.recBtn, learnBtn, helpBtn, this.fsBtn, settingsBtn, exitBtn);
     const topbar = h('header', { class: 'topbar' }, brand, status, actions);
+    this.topbar = topbar;
 
     // ---- coach + flash ------------------------------------------------------------------
     this.coachText = new TextSlot(h('span', { class: 'coach-text' }));
@@ -289,6 +291,13 @@ class Stage implements StageView {
   // -------------------------------------------------------------------------------------------
   // StageView
   // -------------------------------------------------------------------------------------------
+
+  hudInsets(): { top: number; bottom: number } {
+    const vp = this.viewport.getBoundingClientRect();
+    const bar = this.topbar?.getBoundingClientRect();
+    const top = bar && bar.height > 0 ? Math.max(0, bar.bottom - vp.top) : 0;
+    return { top, bottom: 0 };
+  }
 
   setInstruments(list: readonly InstrumentDef[], scales: readonly ScaleDef[]): void {
     this.instruments.clear();
@@ -599,6 +608,8 @@ class Stage implements StageView {
       return;
     }
     if (isTyping(e.target)) return;
+    // While the help dialog is open only H (and Escape, above) act: no hidden setting changes.
+    if (!this.help.hidden && e.key !== 'h' && e.key !== 'H') return;
     const s = this.settings;
     const set = (patch: Partial<Settings>): void => this.callbacks.onSettings(patch);
     switch (e.key) {

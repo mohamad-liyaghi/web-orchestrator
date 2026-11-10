@@ -526,6 +526,9 @@ export interface StageView {
   readonly video: HTMLVideoElement;
   /** Element the overlay covers; its client size is the visible viewport for geometry. */
   readonly viewport: HTMLElement;
+  /** CSS pixels at the top / bottom of the viewport covered by HUD chrome (top bar...), so the
+   *  pitch play zone can stay clear of it. */
+  hudInsets?(): { top: number; bottom: number };
   setInstruments(list: readonly InstrumentDef[], scales: readonly ScaleDef[]): void;
   setSettings(settings: Settings): void;
   setBootProgress(p: LoadProgress | null): void;
