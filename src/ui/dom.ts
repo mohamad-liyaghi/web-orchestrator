@@ -84,3 +84,22 @@ export function rgbTriplet(hex: string): string {
 let uidCounter = 0;
 /** Unique id suffix for SVG gradients and aria references. */
 export const uid = (prefix: string): string => `${prefix}-${++uidCounter}`;
+
+/**
+ * Arrow keys for a role="radiogroup" of buttons (the ARIA radio pattern): Left/Up and Right/Down
+ * move to the previous / next option and select it. The handled key is marked defaultPrevented,
+ * so the stage shortcuts (arrow up / down = octave) leave it alone.
+ */
+export function radioArrowKeys(group: HTMLElement): void {
+  group.addEventListener('keydown', (e) => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (!step || e.altKey || e.ctrlKey || e.metaKey) return;
+    const radios = Array.from(group.querySelectorAll<HTMLButtonElement>('[role="radio"]')).filter((b) => !b.disabled);
+    const i = radios.indexOf(document.activeElement as HTMLButtonElement);
+    if (i < 0 || radios.length < 2) return;
+    e.preventDefault();
+    const next = radios[(i + step + radios.length) % radios.length]!;
+    next.focus();
+    next.click();
+  });
+}

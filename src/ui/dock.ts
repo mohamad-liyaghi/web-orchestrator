@@ -16,7 +16,7 @@ import { ACTION_GESTURES, DEFAULT_SETTINGS, GESTURE_ACTIONS, shareUrl } from '..
 import { PRESETS } from '../presets';
 import { ACTION_LABEL, GESTURE_GLYPH } from '../gestures';
 import { FAMILIES, familyMeta } from './catalog';
-import { NOTE_NAMES, h, setClass, uid } from './dom';
+import { NOTE_NAMES, h, radioArrowKeys, setClass, uid } from './dom';
 import { icon } from './icons';
 
 export type SheetTab = 'lead' | 'left' | 'play' | 'learn' | 'gestures' | 'display';
@@ -93,6 +93,7 @@ function segmented<T extends string>(
   cls = '',
 ): HTMLElement {
   const group = h('div', { class: `seg ${cls}`.trim(), role: 'radiogroup', 'aria-label': label });
+  radioArrowKeys(group);
   const buttons = options.map((o) => {
     const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', 'data-value': o.id, text: o.label });
     b.addEventListener('click', () => onPick(o.id));
@@ -334,6 +335,7 @@ export class Dock {
       setClass(this.sensWrap, 'is-dim', s.trigger !== 'mouth');
     });
     const keyGrid = h('div', { class: 'key-grid', role: 'radiogroup', 'aria-label': 'Key' });
+    radioArrowKeys(keyGrid);
     const keyBtns = NOTE_NAMES.map((n, i) => {
       const kb = h('button', { type: 'button', class: `key-btn${n.includes('#') ? ' is-sharp' : ''}`, role: 'radio', 'aria-checked': 'false', text: n });
       kb.addEventListener('click', () => set({ key: i }));
@@ -347,6 +349,7 @@ export class Dock {
       }),
     );
     this.scaleRow = h('div', { class: 'chip-row', role: 'radiogroup', 'aria-label': 'Scale' });
+    radioArrowKeys(this.scaleRow);
     const octave2 = h('div', { class: 'stepper stepper-lg', role: 'group', 'aria-label': 'Octave' });
     const o2d = h('button', { type: 'button', class: 'step-btn', 'aria-label': 'Octave down' });
     o2d.append(icon('minus'));

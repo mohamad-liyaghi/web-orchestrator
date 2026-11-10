@@ -1,6 +1,6 @@
 import type { LearnMode, LearnNote, LearnState, SongInfo } from '../types';
 import { loadLearnMode, saveLearnMode } from '../learn';
-import { TextSlot, h, prefersReducedMotion, setClass } from './dom';
+import { TextSlot, h, prefersReducedMotion, radioArrowKeys, setClass } from './dom';
 import { icon } from './icons';
 
 /**
@@ -56,6 +56,7 @@ export class LearnPane {
 
   constructor(private readonly deps: PaneDeps) {
     const seg = h('div', { class: 'seg seg-wide', role: 'radiogroup', 'aria-label': 'Learn mode' });
+    radioArrowKeys(seg);
     for (const m of MODES) {
       const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', 'data-value': m.id, text: m.label });
       b.addEventListener('click', () => this.setMode(m.id));
