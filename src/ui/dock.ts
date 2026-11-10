@@ -20,13 +20,18 @@ import { ACTION_LABEL, GESTURE_GLYPH } from '../gestures';
 import { FAMILIES, familyMeta } from './catalog';
 import { NOTE_NAMES, h, radioArrowKeys, setClass, uid } from './dom';
 import { icon } from './icons';
+import { type Binder, section, segmented, slider, toggle } from './controls';
+import { buildTechnique } from './technique';
+import { buildStudio } from './studio';
 
-export type SheetTab = 'lead' | 'left' | 'play' | 'learn' | 'gestures' | 'display';
+export type SheetTab = 'lead' | 'technique' | 'left' | 'play' | 'studio' | 'learn' | 'gestures' | 'display';
 
 const TABS: ReadonlyArray<{ id: SheetTab; label: string }> = [
   { id: 'lead', label: 'Lead' },
+  { id: 'technique', label: 'Technique' },
   { id: 'left', label: 'Left hand' },
   { id: 'play', label: 'Play' },
+  { id: 'studio', label: 'Studio' },
   { id: 'learn', label: 'Learn' },
   { id: 'gestures', label: 'Gestures' },
   { id: 'display', label: 'Setup' },
@@ -83,79 +88,6 @@ interface CardRefs {
   bar: HTMLElement;
 }
 
-type Binder = (s: Settings) => void;
-
-/** Segmented control (radio group semantics). */
-function segmented<T extends string>(
-  label: string,
-  options: ReadonlyArray<{ id: T; label: string }>,
-  onPick: (id: T) => void,
-  binders: Binder[],
-  read: (s: Settings) => T,
-  cls = '',
-): HTMLElement {
-  const group = h('div', { class: `seg ${cls}`.trim(), role: 'radiogroup', 'aria-label': label });
-  radioArrowKeys(group);
-  const buttons = options.map((o) => {
-    const b = h('button', { type: 'button', class: 'seg-btn', role: 'radio', 'aria-checked': 'false', 'data-value': o.id, text: o.label });
-    b.addEventListener('click', () => onPick(o.id));
-    group.append(b);
-    return b;
-  });
-  binders.push((s) => {
-    const v = read(s);
-    buttons.forEach((b) => {
-      const on = b.dataset.value === v;
-      b.setAttribute('aria-checked', String(on));
-      setClass(b, 'is-on', on);
-    });
-  });
-  return group;
-}
-
-function toggle(label: string, hint: string, onFlip: (v: boolean) => void, binders: Binder[], read: (s: Settings) => boolean): HTMLElement {
-  const sw = h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': 'false', 'aria-label': label });
-  sw.append(h('span', { class: 'switch-knob' }));
-  sw.addEventListener('click', () => onFlip(sw.getAttribute('aria-checked') !== 'true'));
-  binders.push((s) => sw.setAttribute('aria-checked', String(read(s))));
-  return h('div', { class: 'ctl-row' }, h('div', { class: 'ctl-text' }, h('span', { class: 'ctl-name', text: label }), hint ? h('span', { class: 'ctl-hint', text: hint }) : null), sw);
-}
-
-function slider(
-  label: string,
-  min: number,
-  max: number,
-  step: number,
-  fmt: (v: number) => string,
-  onValue: (v: number) => void,
-  binders: Binder[],
-  read: (s: Settings) => number,
-): { el: HTMLElement; input: HTMLInputElement } {
-  const id = uid('sl');
-  const input = h('input', { type: 'range', id, min, max, step, class: 'range' });
-  const out = h('output', { class: 'range-val mono', for: id });
-  const paint = (v: number): void => {
-    out.textContent = fmt(v);
-    input.style.setProperty('--fill', `${((v - min) / (max - min)) * 100}%`);
-  };
-  input.addEventListener('input', () => {
-    const v = Number(input.value);
-    paint(v);
-    onValue(v);
-  });
-  binders.push((s) => {
-    const v = read(s);
-    if (Number(input.value) !== v) input.value = String(v);
-    paint(v);
-  });
-  const el = h('div', { class: 'ctl-slider' }, h('div', { class: 'ctl-slider-head' }, h('label', { for: id, class: 'ctl-name', text: label }), out), input);
-  return { el, input };
-}
-
-function section(title: string, ...children: (Node | null)[]): HTMLElement {
-  return h('section', { class: 'sheet-sec' }, h('h3', { class: 'sheet-sec-title', text: title }), ...children);
-}
-
 /**
  * Controls: a compact dock (always visible) and a sheet with every setting. On phones the sheet
  * is a draggable bottom sheet. Settings flow one way: a control calls onSettings(patch), the
@@ -198,6 +130,7 @@ export class Dock {
   private readonly midiSel: HTMLSelectElement;
   private readonly midiNote: HTMLElement;
   private midi: MidiStatus | null = null;
+  private readonly cleanups: Array<() => void> = [];
 
   constructor(private readonly deps: DockDeps) {
     const set = (patch: Partial<Settings>): void => deps.callbacks.onSettings(patch);
@@ -546,6 +479,13 @@ export class Dock {
       ),
     );
 
+    // Technique (instrument-aware) and Studio panes.
+    const technique = buildTechnique({ set, binders: b, instrument: (id) => this.instruments.find((i) => i.id === id), toast: deps.toast });
+    this.pane('technique', technique.el);
+    const studio = buildStudio({ set, binders: b, toast: deps.toast });
+    this.pane('studio', studio.el);
+    this.cleanups.push(technique.destroy, studio.destroy);
+
     if (deps.learnPane) this.pane('learn', deps.learnPane);
 
     for (const [, p] of this.panes) body.append(p);
@@ -652,6 +592,7 @@ export class Dock {
 
   destroy(): void {
     window.clearTimeout(this.resetArmed);
+    for (const fn of this.cleanups) fn();
   }
 
   /** Cameras to choose from; the picker shows only with more than one. */

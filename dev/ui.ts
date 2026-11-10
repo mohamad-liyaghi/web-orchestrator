@@ -7,7 +7,7 @@
  *   error=<code>    show that AppError on the landing page
  *   stageError      show an error card on the stage
  *   boot            keep the boot overlay up (models never finish)
- *   sheet=<tab>     open the controls on lead | left | play | learn | gestures | display
+ *   sheet=<tab>     open the controls on lead | technique | left | play | studio | learn | gestures | display
  *   help            open the help overlay
  *   mode=chords     start in chords mode;  lowPower  start in low-power mode
  *   rec             start a (silent) recording
@@ -213,7 +213,7 @@ async function start(): Promise<void> {
   const tab = q.get('sheet');
   if (tab) {
     click('.dock-more');
-    const names: Record<string, string> = { lead: 'Lead', left: 'Left hand', play: 'Play', learn: 'Learn', gestures: 'Gestures', display: 'Setup' };
+    const names: Record<string, string> = { lead: 'Lead', technique: 'Technique', left: 'Left hand', play: 'Play', studio: 'Studio', learn: 'Learn', gestures: 'Gestures', display: 'Setup' };
     for (const b of document.querySelectorAll<HTMLElement>('.tab')) if (b.textContent === names[tab]) b.click();
   }
   if (q.has('help')) click('.icon-btn[aria-label^="Help"]');
