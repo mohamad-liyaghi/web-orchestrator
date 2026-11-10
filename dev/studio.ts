@@ -1023,7 +1023,8 @@ async function selfTest(parts: string[] = ['offline', 'realtime', 'engine']): Pr
 // Soak
 // ---------------------------------------------------------------------------------------------
 
-async function soak(minutes = 5): Promise<Report> {
+/** `studio` false: only instruments, modes and beats change (a baseline without the studio). */
+async function soak(minutes = 5, studio = true): Promise<Report> {
   errors.length = 0;
   await engine.unlock();
   configure({ ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, trigger: 'mouth', groove: true });
@@ -1072,7 +1073,12 @@ async function soak(minutes = 5): Promise<Report> {
   while (performance.now() < end) {
     await sleep(1500);
     changes++;
-    configure({
+    const tempo = Math.round(rnd(70, 150));
+    const beat = pickOf(['pop', 'lofi', 'rock', 'house', 'metronome'] as const);
+    const swap = changes % 6 === 0 ? { lead: pickOf(ids), mode: pickOf(['melody', 'chords'] as const), chordPlay: pickOf(['block', 'strum', 'arp'] as const), leftHand: pickOf(['volume', 'bass', 'chords'] as const) } : {};
+    if (!studio) {
+      configure({ tempo, beat, lowPower: changes % 20 === 19, ...swap });
+    } else configure({
       tuning: Math.round(rnd(415, 466)),
       transpose: Math.round(rnd(-12, 12)),
       timeSignature: pickOf(TIME_SIGNATURES),
@@ -1093,9 +1099,9 @@ async function soak(minutes = 5): Promise<Report> {
       compressor: r2(rnd(0, 1)),
       width: r2(rnd(0, 1)),
       lowPower: changes % 20 === 19,
-      tempo: Math.round(rnd(70, 150)),
-      beat: pickOf(['pop', 'lofi', 'rock', 'house', 'metronome'] as const),
-      ...(changes % 6 === 0 ? { lead: pickOf(ids), mode: pickOf(['melody', 'chords'] as const), chordPlay: pickOf(['block', 'strum', 'arp'] as const), leftHand: pickOf(['volume', 'bass', 'chords'] as const) } : {}),
+      tempo,
+      beat,
+      ...swap,
     });
     if (performance.now() >= nextSample) {
       nextSample += 15_000;
@@ -1131,11 +1137,12 @@ async function soak(minutes = 5): Promise<Report> {
 declare global {
   interface Window {
     __studioSelfTest?: (parts?: string[]) => Promise<Report>;
-    __studioSoak?: (minutes?: number) => Promise<Report>;
+    __studioSoak?: (minutes?: number, studio?: boolean) => Promise<Report>;
   }
 }
 window.__studioSelfTest = selfTest;
 window.__studioSoak = soak;
+(window as unknown as { __studioEngine: unknown }).__studioEngine = engine;
 const out = document.getElementById('out')!;
 document.getElementById('run')!.addEventListener('click', () => {
   out.textContent = 'running…';
