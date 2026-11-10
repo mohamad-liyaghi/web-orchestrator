@@ -567,8 +567,12 @@ export class Dock {
     const active = this.tabButtons.get(tab);
     const strip = active?.parentElement;
     if (active && strip && strip.scrollWidth > strip.clientWidth) {
+      // Always scroll (to the current offset when already in view): it also cancels a smooth
+      // scroll still running toward a previously opened tab.
       const l = active.offsetLeft - strip.offsetLeft;
-      if (l < strip.scrollLeft || l + active.offsetWidth > strip.scrollLeft + strip.clientWidth - 16) strip.scrollTo({ left: Math.max(0, l - 24), behavior: 'smooth' });
+      const lo = l + active.offsetWidth + 24 - strip.clientWidth;
+      const left = Math.max(0, Math.min(Math.max(strip.scrollLeft, lo), l - 24));
+      strip.scrollTo({ left, behavior: 'smooth' });
     }
     if (!this.openState) {
       this.openState = true;

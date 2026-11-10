@@ -418,6 +418,34 @@
     padding: 12px;
   }
 
+  .tq-voices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 6px;
+  }
+
+  .tq-voice {
+    padding: 5px 10px 5px 5px;
+    gap: 8px;
+  }
+
+  .tq-glyph {
+    width: 28px;
+    height: 28px;
+    font-size: 0.95rem;
+  }
+
+  .tq-vname {
+    font-size: 0.86rem;
+  }
+
+  .tq-vrole {
+    font-size: 0.56rem;
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .strum-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
