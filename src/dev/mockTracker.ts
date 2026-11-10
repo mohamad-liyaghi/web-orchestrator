@@ -56,6 +56,7 @@ function makeHand(id: number, side: 'left' | 'right', tip: Vec2, pinch: number, 
     pinch,
     pinching: pinch > 0.7,
     fingersUp: pinch > 0.7 ? 3 : 5,
+    gesture: pinch > 0.7 ? 'none' : 'open',
     score: 0.97,
     age,
   };
@@ -133,6 +134,16 @@ export class MockTracker implements Tracker {
       mouthCenter,
     };
 
-    return { t: now, hands, face, fps: this.fps, video: { ...VIDEO } };
+    // Every 20 s: the left hand holds a peace sign for 1.5 s (exercises gesture actions) and the
+    // picture gets dark for 2 s (exercises the framing flag).
+    const phase = s % 20;
+    const left = hands.find((h) => h.side === 'left');
+    if (left && phase > 12 && phase < 13.5) left.gesture = 'peace';
+    const dark = phase > 16 && phase < 18;
+    const quality: TrackingFrame['quality'] = dark
+      ? { score: 0.35, verdict: 'too-dark', ideal: false, brightness: 0.08, handScale: HAND_SIZE }
+      : { score: 0.93, verdict: 'great', ideal: true, brightness: 0.52, handScale: HAND_SIZE };
+
+    return { t: now, hands, face, fps: this.fps, quality, video: { ...VIDEO } };
   }
 }
