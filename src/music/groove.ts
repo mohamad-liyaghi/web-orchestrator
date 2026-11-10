@@ -370,17 +370,19 @@ export class Groove {
       // Run after the Transport callback returns (same audio time): when the PolySynth has to build
       // a voice, Tone's constructors schedule without a time and warn inside a Transport callback.
       const pad = this.pad;
-      // Chords changing every beat at a fast tempo would overrun the pad's voices (releasing ones
-      // still count): keep the sounding chord until voices free up, never drop notes mid-chord.
-      const room = pad.maxPolyphony - pad.activeVoices;
-      if (room < notes.length) {
-        if (s !== 0 || room <= 0) return;
-        notes.length = room;
-      }
       this.lastPadKey = key;
       const length = sixteenth * (m.steps - s) * 0.98;
+      const downbeat = s === 0;
       queueMicrotask(() => {
         if (pad.disposed) return;
+        // Chords changing every beat at a fast tempo would overrun the pad's voices (releasing ones
+        // still count): keep the sounding chord until voices free up rather than drop notes.
+        // Checked here, where the notes start: two steps can be scheduled in one turn.
+        const room = pad.maxPolyphony - pad.activeVoices;
+        if (room < notes.length) {
+          if (!downbeat || room <= 0) return;
+          notes.length = room;
+        }
         pad.releaseAll(time);
         pad.triggerAttackRelease(notes, length, time, 0.45);
       });
