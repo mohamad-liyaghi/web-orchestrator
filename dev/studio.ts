@@ -370,7 +370,12 @@ async function realtimeSweep(seconds: number, mutate: ((s: RackSettings, i: numb
     for (let k = b * B; k < (b + 1) * B; k++) m = Math.max(m, Math.abs(L[k]!));
     amp[b] = m;
   }
+  // Where echoes nearly cancel the signal the local level is tiny and any residue looks huge:
+  // never normalize by less than -20 dB under the run's median level.
+  const sorted = Array.from(amp).sort((x, y) => x - y);
+  const floor = 0.1 * (sorted[Math.floor(sorted.length / 2)] ?? 0);
   let maxRatio = 0;
+  let worstStep = 0;
   let clicks = 0;
   let nonFinite = 0;
   for (let k = 1; k < N - 1; k++) {
@@ -379,9 +384,13 @@ async function realtimeSweep(seconds: number, mutate: ((s: RackSettings, i: numb
       continue;
     }
     const b = Math.floor(k / B);
-    const a = Math.max(amp[b]!, amp[Math.max(0, b - 1)]!, amp[Math.min(blocks - 1, b + 1)]!, 1e-4);
-    const ratio = Math.abs(L[k + 1]! - 2 * L[k]! + L[k - 1]!) / (a * w2);
-    if (ratio > maxRatio) maxRatio = ratio;
+    const a = Math.max(amp[b]!, amp[Math.max(0, b - 1)]!, amp[Math.min(blocks - 1, b + 1)]!, floor, 1e-4);
+    const d2 = Math.abs(L[k + 1]! - 2 * L[k]! + L[k - 1]!);
+    const ratio = d2 / (a * w2);
+    if (ratio > maxRatio) {
+      maxRatio = ratio;
+      worstStep = d2;
+    }
     if (ratio > 6) clicks++;
   }
   // Dropouts / jumps: 10 ms RMS envelope.
@@ -399,7 +408,7 @@ async function realtimeSweep(seconds: number, mutate: ((s: RackSettings, i: numb
     }
     prev = r;
   }
-  return { changes: i, maxClickRatio: r2(maxRatio, 2), samplesOverClickThreshold: clicks, nonFinite, rmsMinDb: r2(dbfs(minRms)), envStepMinDb: r2(dbfs(minStep)), envStepMaxDb: r2(dbfs(maxStep)) };
+  return { changes: i, maxClickRatio: r2(maxRatio, 2), worstStepDbfs: r2(dbfs(worstStep), 1), samplesOverClickThreshold: clicks, nonFinite, rmsMinDb: r2(dbfs(minRms)), envStepMinDb: r2(dbfs(minStep)), envStepMaxDb: r2(dbfs(maxStep)) };
 }
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
@@ -1022,6 +1031,8 @@ async function soak(minutes = 5): Promise<Report> {
   await tracker.init();
   let frames = 0;
   let updateMs = 0;
+  let windowMs = 0;
+  let windowFrames = 0;
   let worstUpdate = 0;
   let peak = 0;
   let nonFinite = 0;
@@ -1031,6 +1042,8 @@ async function soak(minutes = 5): Promise<Report> {
     engine.update(f);
     const d = performance.now() - t;
     updateMs += d;
+    windowMs += d;
+    windowFrames++;
     worstUpdate = Math.max(worstUpdate, d);
     const p = readPeak();
     peak = Math.max(peak, p.peak);
@@ -1086,7 +1099,9 @@ async function soak(minutes = 5): Promise<Report> {
     });
     if (performance.now() >= nextSample) {
       nextSample += 15_000;
-      samples.push({ t: Math.round((performance.now() - t0) / 1000), heapKB: heap(), members: studioVoice.memberCount, updateAvgMs: r2(updateMs / Math.max(1, frames), 3), peakDb: r2(dbfs(peak), 2) });
+      samples.push({ t: Math.round((performance.now() - t0) / 1000), heapKB: heap(), members: studioVoice.memberCount, mode: settings.mode, updateMsLast15s: r2(windowMs / Math.max(1, windowFrames), 3), peakDb: r2(dbfs(peak), 2) });
+      windowMs = 0;
+      windowFrames = 0;
     }
   }
   tracker.dispose();
