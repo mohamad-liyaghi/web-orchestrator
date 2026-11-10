@@ -481,7 +481,7 @@ window.__musicSelfTest = selfTest;
  * and the groove keep changing. Samples the JS heap (after a GC when exposed) and the number of
  * live notes so a leak shows up as growth.
  */
-(window as unknown as { __musicSoak: unknown }).__musicSoak = async (minutes = 10) => {
+(window as unknown as { __musicSoak: unknown }).__musicSoak = async (minutes = 10, vary = true) => {
   await engine.unlock();
   const ids = ['grand-piano', 'violin', 'theremin', 'opera-choir', 'acoustic-guitar', 'warm-pad', 'marimba', 'flute', 'electric-bass', 'fm-bell'];
   settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, trigger: 'mouth', groove: true };
@@ -490,9 +490,14 @@ window.__musicSelfTest = selfTest;
   tracker = new MockTracker();
   await tracker.init();
   let frames = 0;
+  let updateMs = 0;
+  let updates = 0;
   tracker.start(document.createElement('video'), (f) => {
     frames++;
+    const t0 = performance.now();
     lastVoices = engine.update(decorate(f));
+    updateMs += performance.now() - t0;
+    updates++;
   });
   const raf = () => {
     engine.level();
@@ -507,12 +512,21 @@ window.__musicSelfTest = selfTest;
     return Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1024);
   };
   const inner = engine as unknown as { lead: { player: { activeCount: number } | null }; bass: { player: { activeCount: number } | null } };
-  const samples: { t: number; heapKB: number; liveNotes: number; notes: number }[] = [];
+  const samples: { t: number; heapKB: number; liveNotes: number; notes: number; updateMs: number }[] = [];
   const end = performance.now() + minutes * 60_000;
   let step = 0;
   while (performance.now() < end) {
     await sleep(15_000);
     step++;
+    if (!vary) {
+      // Fixed settings: any rise in updateMs is a leak, not a heavier configuration.
+      if (step % 2 === 0) {
+        samples.push({ t: Math.round((minutes * 60_000 - (end - performance.now())) / 1000), heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed, updateMs: Math.round((updateMs / Math.max(1, updates)) * 1000) / 1000 });
+        updateMs = 0;
+        updates = 0;
+      }
+      continue;
+    }
     const mode = step % 4 === 3 ? 'chords' : 'melody';
     settings = {
       ...settings,
@@ -536,14 +550,16 @@ window.__musicSelfTest = selfTest;
     };
     engine.configure(settings);
     if (step % 2 === 0) {
-      samples.push({ t: Math.round((minutes * 60_000 - (end - performance.now())) / 1000), heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed });
+      samples.push({ t: Math.round((minutes * 60_000 - (end - performance.now())) / 1000), heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed, updateMs: Math.round((updateMs / Math.max(1, updates)) * 1000) / 1000 });
+      updateMs = 0;
+      updates = 0;
     }
   }
   tracker.dispose();
   tracker = null;
   engine.panic();
   await sleep(2500);
-  samples.push({ t: minutes * 60, heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed });
+  samples.push({ t: minutes * 60, heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed, updateMs: 0 });
   return { frames, samples };
 };
 $('selftest').addEventListener('click', () => {
