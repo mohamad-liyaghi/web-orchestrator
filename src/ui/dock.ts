@@ -563,6 +563,13 @@ export class Dock {
       tb.tabIndex = on ? 0 : -1;
       setClass(tb, 'is-on', on);
     }
+    // Phones: the tab strip scrolls sideways; keep the active tab in view.
+    const active = this.tabButtons.get(tab);
+    const strip = active?.parentElement;
+    if (active && strip && strip.scrollWidth > strip.clientWidth) {
+      const l = active.offsetLeft - strip.offsetLeft;
+      if (l < strip.scrollLeft || l + active.offsetWidth > strip.scrollLeft + strip.clientWidth - 16) strip.scrollTo({ left: Math.max(0, l - 24), behavior: 'smooth' });
+    }
     if (!this.openState) {
       this.openState = true;
       this.sheet.inert = false;

@@ -455,3 +455,15 @@
   .tq-o7 { order: 7; }
   .tq-o9 { order: 9; }
 }
+
+/* Steppers with units ("−2 st", "2 oct"). */
+.tq .step-val,
+.studio .step-val {
+  min-width: 5ch;
+  white-space: nowrap;
+}
+
+.tq .ctl-row .stepper,
+.studio .ctl-row .stepper {
+  flex: none;
+}
