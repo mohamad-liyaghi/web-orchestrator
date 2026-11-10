@@ -620,12 +620,28 @@
 
 /* Landscape phones: a slim strip, stats beside the ribbon. */
 @media (max-height: 500px) {
+  /* Pinned left: the lead (right) hand plays on the right half of the picture. */
   .learn-hud {
-    width: min(620px, calc(100% - 20px));
+    width: min(460px, calc(62% - 10px));
+    left: calc(10px + var(--safe-l));
+    transform: none;
     grid-template-columns: 1fr auto;
     align-items: center;
     column-gap: 10px;
     top: calc(54px + var(--safe-t));
+  }
+
+  @keyframes lh-miss {
+    20% {
+      transform: translateX(-6px);
+      box-shadow: 0 0 0 1px rgba(255, 85, 119, 0.8);
+    }
+    45% {
+      transform: translateX(5px);
+    }
+    70% {
+      transform: translateX(-2px);
+    }
   }
 
   .lh-head,
@@ -638,6 +654,15 @@
   }
 
   .lh-lab {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .lh-ribbon .lh-chip:nth-child(n + 6) {
     display: none;
   }
 
