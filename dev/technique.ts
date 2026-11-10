@@ -646,6 +646,32 @@ async function liveChecks(report: Report): Promise<void> {
   }
 }
 
+/** Synth voices under strums, arpeggios and fast chord changes (withdrawn notes, stolen voices). */
+async function synthStress(report: Report): Promise<void> {
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (...a: unknown[]) => {
+    warnings.push(a.map(String).join(' ') + ' @ ' + (new Error().stack ?? '').split('\n').slice(2, 4).join(' | '));
+    orig(...a);
+  };
+  try {
+    const synths = ['pluck', 'fm-bell', 'analog-lead', 'square-lead', 'warm-pad', 'theremin'];
+    for (const lead of synths) {
+      for (const chordPlay of ['strum', 'arp'] as const) {
+        await set({ mode: 'chords', lead, bass: 'sub-bass', chordPlay, strumPattern: 'down-up', arpRate: '1/16t', arpOctaves: 3, bassPattern: 'octave', tempo: 160, humanize: 1 });
+        for (let i = 0; i < 12; i++) await drive(chordFrame(1 + ((i * 3) % 7)), 140 + (i % 4) * 45);
+      }
+    }
+    await set({ mode: 'melody', lead: 'pluck', harmony: 'third-above', playStyle: 'manual', glide: 0.5 });
+    for (let i = 0; i < 20; i++) await drive(() => frame([hand(0, 'right', 0.7, 0.15 + ((i * 7) % 10) * 0.07)]), 60);
+    await set({ playStyle: 'auto', glide: 0.15, harmony: 'off', humanize: 0 });
+  } finally {
+    console.warn = orig;
+  }
+  const q = await quiet(2000);
+  report.synthStress = { warnings: warnings.slice(0, 6), warningCount: warnings.length, ...q, ok: warnings.length === 0 && q.ok };
+}
+
 async function techniqueTest(): Promise<Report> {
   const report: Report = {};
   const errors: string[] = [];
@@ -653,6 +679,7 @@ async function techniqueTest(): Promise<Report> {
   window.addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
   pureChecks(report);
   await liveChecks(report);
+  await synthStress(report);
   report.errors = errors;
   const fails = Object.entries(report)
     .filter(([, v]) => v && typeof v === 'object' && 'ok' in (v as object) && !(v as { ok: boolean }).ok)
@@ -672,3 +699,13 @@ document.getElementById('run')!.addEventListener('click', () => {
   out.textContent = 'running...';
   void techniqueTest().then((r) => (out.textContent = JSON.stringify(r, null, 1)));
 });
+/** Only the synth stress check (quick). */
+(window as unknown as { __synthStress: unknown }).__synthStress = async () => {
+  await engine.unlock();
+  settings = { ...settings, trigger: 'always', leftHand: 'off', groove: false, reverb: 0, tiltControls: false };
+  engine.configure(settings);
+  engine.setPlayZone({ y0: 0.1, y1: 0.86 });
+  const report: Report = {};
+  await synthStress(report);
+  return report;
+};
