@@ -72,7 +72,8 @@ export class GestureController {
   update(frame: TrackingFrame): void {
     const s = this.deps.getSettings();
     this.pending = null;
-    if (!s.gesturesEnabled) {
+    // In chords mode every finger pattern is musical (degrees, chord styles): no command gestures.
+    if (!s.gesturesEnabled || s.mode === 'chords') {
       this.holds.clear();
       return;
     }
