@@ -523,6 +523,16 @@ window.__musicSelfTest = selfTest;
       chordPlay: (['block', 'strum', 'arp'] as const)[step % 3]!,
       beat: (['pop', 'lofi', 'rock', 'house', 'metronome'] as const)[step % 5]!,
       lowPower: step % 6 === 5,
+      // Playing techniques: strum patterns, bass lines, arpeggiator, pedal, harmony.
+      playStyle: step % 5 === 4 ? 'manual' : 'auto',
+      strumPattern: (['down-up', 'folk', 'pop', 'reggae', 'ballad', 'single'] as const)[step % 6]!,
+      bassPattern: (['walking', 'octave', 'root-fifth', 'root', 'off'] as const)[step % 5]!,
+      arpRate: (['1/16', '1/8t', '1/8d', '1/16t', '1/4', '1/8'] as const)[step % 6]!,
+      arpOctaves: 1 + (step % 3),
+      harmony: (['off', 'third-above', 'sixth-below', 'fifth-above', 'octave'] as const)[step % 5]!,
+      sustainPedal: (['auto', 'hold', 'off'] as const)[step % 3]!,
+      palmMute: step % 4 === 2,
+      voicing: (['close', 'guitar', 'open', 'drop2', 'spread'] as const)[step % 5]!,
     };
     engine.configure(settings);
     if (step % 2 === 0) {

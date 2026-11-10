@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:," />
+    <title>Playing technique harness</title>
+    <style>
+      body { margin: 0; padding: 16px; background: #05060a; color: #d7e3ff; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      h1 { font-size: 15px; margin: 0 0 12px; color: #7dd3fc; }
+      button { background: #111827; color: inherit; border: 1px solid #334155; border-radius: 6px; padding: 5px 9px; font: inherit; }
+      pre { background: #0b1020; border: 1px solid #1e293b; border-radius: 8px; padding: 10px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>Playing technique harness</h1>
+    <p>Runs <code>window.__techniqueTest()</code>: guitar shapes, harmony, arpeggios, strum patterns, pedal, bass lines, slides and stuck-note checks on the real engine. Headless: <code>node dev/music-check.mjs http://localhost:PORT/dev/technique.html "window.__techniqueTest()"</code></p>
+    <button id="run">Run</button>
+    <pre id="out">Press Run.</pre>
+    <script type="module" src="./technique.ts"></script>
+  </body>
+</html>
