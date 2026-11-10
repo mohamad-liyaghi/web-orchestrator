@@ -271,6 +271,8 @@ export class ChordPart {
     const player = this.player();
     const ctx = this.ctx;
     if (!this.id || !player || !ctx) return;
+    // The beat (or a loop) started under a held chord: the pattern locks onto its bars.
+    if (this.origin !== 0 && this.clock.locked()) this.origin = 0;
     const s = ctx.settings;
     const rel = step - this.origin;
     const beat = sixteenth * 4;
