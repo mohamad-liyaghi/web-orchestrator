@@ -446,6 +446,12 @@
   background: var(--glass-strong);
 }
 
+/* Panels that cover the metrics strip and the dock: without the blur, the controls behind would
+   show through as readable text, so these go opaque. */
+.stage.is-lite :is(.sheet, .help-panel, .boot-card, .error-card) {
+  background: var(--bg-1);
+}
+
 @media (hover: none) and (pointer: coarse) {
   .hide-touch {
     display: none !important;
