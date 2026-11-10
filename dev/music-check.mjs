@@ -20,6 +20,8 @@ const chrome = spawn('google-chrome', [
   `--remote-debugging-port=${port}`,
   `--user-data-dir=${profile}`,
   '--autoplay-policy=no-user-gesture-required',
+  '--enable-precise-memory-info',
+  '--js-flags=--expose-gc',
   '--no-first-run',
   '--no-default-browser-check',
   'about:blank',
@@ -79,7 +81,7 @@ try {
   await send('Page.navigate', { url });
   await new Promise((r) => setTimeout(r, 2500));
   const t0 = Date.now();
-  const res = await send('Runtime.evaluate', { expression: `Promise.resolve(${expr}).then((r) => JSON.stringify(r))`, awaitPromise: true, returnByValue: true, timeout: 600000 });
+  const res = await send('Runtime.evaluate', { expression: `Promise.resolve(${expr}).then((r) => JSON.stringify(r))`, awaitPromise: true, returnByValue: true, timeout: 1200000 });
   const raw = res.result?.result?.value;
   const report = typeof raw === 'string' ? JSON.parse(raw) : res.result;
   console.log(JSON.stringify({ seconds: Math.round((Date.now() - t0) / 1000), report, console: logs, httpErrors: failed }, null, 1));

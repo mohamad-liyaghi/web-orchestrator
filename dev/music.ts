@@ -247,7 +247,9 @@ async function selfTest(): Promise<Report> {
   engine.configure(settings);
   engine.setPlayZone({ y0: 0.1, y1: 0.86 });
 
-  // 1. Every instrument: loads, sounds, releases.
+  // 1. Every instrument: loads, sounds, releases (dry, so a reverb tail cannot hide or fake a stuck note).
+  settings = { ...settings, reverb: 0 };
+  engine.configure(settings);
   const perInstrument: Report[] = [];
   for (const inst of engine.instruments) {
     const [load] = await setAndLoad({ lead: inst.id }, [inst.id]);
@@ -257,10 +259,11 @@ async function selfTest(): Promise<Report> {
   }
   report.instruments = perInstrument;
   report.instrumentsOk = perInstrument.filter((r) => r.ok).length + '/' + perInstrument.length;
+  settings = { ...settings, reverb: 0.3 };
+  engine.configure(settings);
 
   // 2. Lanes: 15 pentatonic lanes, cached array instance.
-  settings = { ...settings, lead: 'grand-piano', scale: 'major-pentatonic', span: 15 };
-  engine.configure(settings);
+  await setAndLoad({ lead: 'grand-piano', scale: 'major-pentatonic', span: 15 }, ['grand-piano']);
   const l1 = engine.lanes('lead');
   report.lanes = { count: l1.length, top: l1[0]?.note, bottom: l1[l1.length - 1]?.note, cached: l1 === engine.lanes('lead') };
 
@@ -469,6 +472,66 @@ window.__musicSelfTest = selfTest;
     await quiet(1200);
   }
   return out;
+};
+/**
+ * Soak: the mock tracker drives the engine for `minutes` while instruments, modes, play styles
+ * and the groove keep changing. Samples the JS heap (after a GC when exposed) and the number of
+ * live notes so a leak shows up as growth.
+ */
+(window as unknown as { __musicSoak: unknown }).__musicSoak = async (minutes = 10) => {
+  await engine.unlock();
+  const ids = ['grand-piano', 'violin', 'theremin', 'opera-choir', 'acoustic-guitar', 'warm-pad', 'marimba', 'flute', 'electric-bass', 'fm-bell'];
+  settings = { ...DEFAULT_SETTINGS, gestures: { ...DEFAULT_SETTINGS.gestures }, trigger: 'mouth', groove: true };
+  engine.configure(settings);
+  tracker?.dispose();
+  tracker = new MockTracker();
+  await tracker.init();
+  let frames = 0;
+  tracker.start(document.createElement('video'), (f) => {
+    frames++;
+    lastVoices = engine.update(decorate(f));
+  });
+  const raf = () => {
+    engine.level();
+    engine.spectrum();
+    engine.metrics();
+    if (tracker) requestAnimationFrame(raf);
+  };
+  requestAnimationFrame(raf);
+  const gc = (window as unknown as { gc?: () => void }).gc;
+  const heap = () => {
+    gc?.();
+    return Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1024);
+  };
+  const inner = engine as unknown as { lead: { player: { activeCount: number } | null }; bass: { player: { activeCount: number } | null } };
+  const samples: { t: number; heapKB: number; liveNotes: number; notes: number }[] = [];
+  const end = performance.now() + minutes * 60_000;
+  let step = 0;
+  while (performance.now() < end) {
+    await sleep(15_000);
+    step++;
+    const mode = step % 4 === 3 ? 'chords' : 'melody';
+    settings = {
+      ...settings,
+      lead: ids[step % ids.length]!,
+      bass: ids[(step + 3) % ids.length]!,
+      mode,
+      leftHand: (['volume', 'bass', 'chords', 'off'] as const)[step % 4]!,
+      chordPlay: (['block', 'strum', 'arp'] as const)[step % 3]!,
+      beat: (['pop', 'lofi', 'rock', 'house', 'metronome'] as const)[step % 5]!,
+      lowPower: step % 6 === 5,
+    };
+    engine.configure(settings);
+    if (step % 2 === 0) {
+      samples.push({ t: Math.round((minutes * 60_000 - (end - performance.now())) / 1000), heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed });
+    }
+  }
+  tracker.dispose();
+  tracker = null;
+  engine.panic();
+  await sleep(2500);
+  samples.push({ t: minutes * 60, heapKB: heap(), liveNotes: (inner.lead.player?.activeCount ?? 0) + (inner.bass.player?.activeCount ?? 0), notes: engine.metrics().notesPlayed });
+  return { frames, samples };
 };
 $('selftest').addEventListener('click', () => {
   out.textContent = 'running self-test...';
